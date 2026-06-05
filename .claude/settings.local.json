@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p preprocessing/security_camera preprocessing/lfp_recording preprocessing/data_merging preprocessing/computer_vision)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
