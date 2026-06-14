@@ -1,0 +1,5 @@
+# Reolink runtime file written into the working dir when the client is launched
+p2pc_mem.txt
+
+# any stray logs if someone points output here
+*.log
