@@ -96,18 +96,20 @@ function Start-Channel([int]$n) {
 # --- startup: clear any orphaned ffmpeg from a previous (crashed) supervisor ---
 Get-Process ffmpeg -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-function Get-NewestSize([string]$ch) {
-    $f = Get-ChildItem (Join-Path $root "CH$ch") -File -Filter '*.mp4' -EA SilentlyContinue |
-         Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $f) { return 0 }
-    # Get-ChildItem .Length is stale (0) for a file ffmpeg is still writing; read
-    # the true length via an open handle (FileShare.ReadWrite so it doesn't block).
+function Get-NewestFile([string]$ch) {
+    Get-ChildItem (Join-Path $root "CH$ch") -File -Filter '*.mp4' -EA SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+}
+
+# True length of a file ffmpeg is still writing (Get-ChildItem .Length is stale 0).
+# On a transient open failure return $fallback so it doesn't look like shrinkage.
+function Get-HandleLen([string]$path, [double]$fallback = 0) {
     try {
-        $fs = [System.IO.File]::Open($f.FullName, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        $fs = [System.IO.File]::Open($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
         $len = $fs.Length
         $fs.Dispose()
         return $len
-    } catch { return $f.Length }
+    } catch { return $fallback }
 }
 
 Log ("=== recorder starting: channels {0}, segment {1}s, retention {2}d ===" -f ($cfg.Channels -join ','), $cfg.SegmentSeconds, $cfg.RetentionDays)
@@ -116,7 +118,8 @@ Log ("free space: {0} GB" -f (Get-FreeGB))
 $procs    = @{}
 $lastSize = @{}
 $lastGrew = @{}
-$StallSeconds = 180
+$lastName = @{}
+$StallSeconds = 240
 $lastMaint = (Get-Date).AddHours(-1)
 
 while ($true) {
@@ -126,13 +129,19 @@ while ($true) {
 
         # stall watchdog: alive but output file not growing -> kill so it restarts
         if ($alive) {
-            $sz = Get-NewestSize $ch
-            if ($sz -gt $lastSize[$ch]) {
-                $lastSize[$ch] = $sz; $lastGrew[$ch] = Get-Date
-            } elseif (((Get-Date) - $lastGrew[$ch]).TotalSeconds -gt $StallSeconds) {
-                Log ("CH{0} stalled (no growth for {1}s); killing to restart" -f $ch, $StallSeconds)
-                try { Stop-Process -Id $procs[$ch].Id -Force } catch {}
-                $alive = $false
+            $nf = Get-NewestFile $ch
+            if ($nf) {
+                if ($nf.Name -ne $lastName[$ch]) {   # new hourly segment -> reset peak
+                    $lastName[$ch] = $nf.Name; $lastSize[$ch] = 0; $lastGrew[$ch] = Get-Date
+                }
+                $sz = Get-HandleLen $nf.FullName $lastSize[$ch]
+                if ($sz -gt $lastSize[$ch]) {
+                    $lastSize[$ch] = $sz; $lastGrew[$ch] = Get-Date
+                } elseif (((Get-Date) - $lastGrew[$ch]).TotalSeconds -gt $StallSeconds) {
+                    Log ("CH{0} stalled (no growth for {1}s); killing to restart" -f $ch, $StallSeconds)
+                    try { Stop-Process -Id $procs[$ch].Id -Force } catch {}
+                    $alive = $false
+                }
             }
         }
 
@@ -143,6 +152,7 @@ while ($true) {
             $procs[$ch]    = Start-Channel $n
             $lastSize[$ch] = 0
             $lastGrew[$ch] = Get-Date
+            $lastName[$ch] = ''
             Log ("CH{0} started (pid {1})" -f $ch, $procs[$ch].Id)
             Start-Sleep -Seconds 2   # stagger connections
         }
