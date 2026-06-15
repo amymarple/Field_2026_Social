@@ -15,7 +15,7 @@ Write-Host ("Time: {0}   ffmpeg processes: {1} (expect 6)" -f (Get-Date -Format 
 
 # first size sample
 $first = @{}
-foreach ($n in 1..6) { $ch = '{0:D2}' -f $n; $f = Get-ChildItem "$Root\CH$ch" -File -Filter *.mp4 -EA SilentlyContinue | Sort-Object LastWriteTime -Desc | Select-Object -First 1; $first[$ch] = if ($f) { Get-HandleLen $f.FullName } else { -1 } }
+foreach ($n in 1..6) { $ch = '{0:D2}' -f $n; $f = Get-ChildItem "$Root\CH$ch" -File -Filter *.mp4 -EA SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1; $first[$ch] = if ($f) { Get-HandleLen $f.FullName } else { -1 } }
 Start-Sleep -Seconds 4
 
 $grandGB = 0
@@ -25,7 +25,7 @@ foreach ($n in 1..6) {
     $cnt = ($files | Measure-Object).Count
     $gb = [math]::Round((($files | Measure-Object -Property Length -Sum).Sum) / 1GB, 2)
     $grandGB += $gb
-    $newest = $files | Sort-Object LastWriteTime -Desc | Select-Object -First 1
+    $newest = $files | Sort-Object Name -Descending | Select-Object -First 1
     $now = if ($newest) { Get-HandleLen $newest.FullName } else { -1 }
     $growing = if ($now -gt $first[$ch]) { 'GROWING' } else { 'NOT growing' }
     $color = if ($now -gt $first[$ch]) { 'Green' } else { 'Red' }

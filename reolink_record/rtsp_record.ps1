@@ -97,8 +97,11 @@ function Start-Channel([int]$n) {
 Get-Process ffmpeg -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 function Get-NewestFile([string]$ch) {
+    # Sort by NAME, not LastWriteTime: the active segment's timestamp metadata is
+    # lazy while a just-closed segment's updates on close, so LastWriteTime would
+    # wrongly pick the finished file at each rollover. Filenames sort chronologically.
     Get-ChildItem (Join-Path $root "CH$ch") -File -Filter '*.mp4' -EA SilentlyContinue |
-        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        Sort-Object Name -Descending | Select-Object -First 1
 }
 
 # True length of a file ffmpeg is still writing (Get-ChildItem .Length is stale 0).
