@@ -1,0 +1,8 @@
+# Recorder config holds NVR credentials - never commit it
+recorder.config.psd1
+*.config.psd1
+
+# recordings / logs if ever placed alongside the script
+logs/
+CH[0-9][0-9]/
+*.mp4
