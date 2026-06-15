@@ -5,12 +5,13 @@ cameras' RTSP streams with ffmpeg (`-c copy`, no re-encode — bit-identical to 
 NVR's "Clear" recording). This replaces the fragile GUI export automation in
 `reolink_export/` for everything going forward.
 
-Output: one **fragmented MP4 per hour, per channel**:
+Output: one **fragmented MP4 per hour, per channel**. A finished file is renamed to
+show its **start and end time**; the file currently being written keeps just its
+start until it closes:
 
 ```
-D:\Reolink_record\CH01\CH01_2026-06-15_14-00-00.mp4
-D:\Reolink_record\CH02\...
-...
+D:\Reolink_record\CH01\CH01_2026-06-15_14-00-00_to_15-00-00.mp4   <- finished (start->end)
+D:\Reolink_record\CH01\CH01_2026-06-15_15-00-00.mp4               <- still recording
 ```
 
 Why this design beats clicking through Reolink Client: real-time (no overnight

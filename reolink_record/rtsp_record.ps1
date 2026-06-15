@@ -134,7 +134,18 @@ while ($true) {
         if ($alive) {
             $nf = Get-NewestFile $ch
             if ($nf) {
-                if ($nf.Name -ne $lastName[$ch]) {   # new hourly segment -> reset peak
+                if ($nf.Name -ne $lastName[$ch]) {   # a new segment started
+                    # the previous segment is now closed; append its end time
+                    # (= the new segment's start time) so the name shows start_to_end
+                    if ($lastName[$ch]) {
+                        $prev = Join-Path (Join-Path $root "CH$ch") $lastName[$ch]
+                        if ((Test-Path -LiteralPath $prev) -and ($lastName[$ch] -notlike '*_to_*')) {
+                            $endT = ($nf.BaseName -split '_')[-1]   # HH-MM-SS of new file
+                            $newBn = [System.IO.Path]::GetFileNameWithoutExtension($lastName[$ch]) + '_to_' + $endT + '.mp4'
+                            try { Rename-Item -LiteralPath $prev -NewName $newBn -ErrorAction Stop; Log ("CH{0} finalized {1}" -f $ch, $newBn) }
+                            catch { Log ("CH{0} rename failed: {1}" -f $ch, $_.Exception.Message) }
+                        }
+                    }
                     $lastName[$ch] = $nf.Name; $lastSize[$ch] = 0; $lastGrew[$ch] = Get-Date
                 }
                 $sz = Get-HandleLen $nf.FullName $lastSize[$ch]
