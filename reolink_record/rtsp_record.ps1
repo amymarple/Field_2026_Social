@@ -53,11 +53,18 @@ function Get-FreeGB {
     [math]::Round((Get-PSDrive -Name $name).Free / 1GB, 1)
 }
 
+# All recording files across channel folders. NOTE: a wildcard path like "CH*"
+# with -File does NOT descend into the folders, so enumerate each dir explicitly.
+function Get-AllRecordings {
+    Get-ChildItem $root -Directory -Filter 'CH*' -EA SilentlyContinue |
+        ForEach-Object { Get-ChildItem $_.FullName -File -Filter '*.mp4' -EA SilentlyContinue }
+}
+
 # Free space by deleting OLDEST files across all channels until above MinFreeGB.
 function Invoke-DiskGuard {
     if (Get-FreeGB -ge $cfg.MinFreeGB) { return }
     Log ("DISK GUARD: only {0} GB free (< {1}); deleting oldest files" -f (Get-FreeGB), $cfg.MinFreeGB)
-    $all = Get-ChildItem (Join-Path $root 'CH*') -File -Filter '*.mp4' -EA SilentlyContinue | Sort-Object LastWriteTime
+    $all = Get-AllRecordings | Sort-Object LastWriteTime
     foreach ($f in $all) {
         if (Get-FreeGB -ge $cfg.MinFreeGB) { break }
         try { Remove-Item $f.FullName -Force; Log ("DISK GUARD removed " + $f.Name) } catch {}
@@ -68,7 +75,7 @@ function Invoke-DiskGuard {
 function Invoke-Retention {
     if ($cfg.RetentionDays -le 0) { return }
     $cut = (Get-Date).AddDays(-$cfg.RetentionDays)
-    Get-ChildItem (Join-Path $root 'CH*') -File -Filter '*.mp4' -EA SilentlyContinue |
+    Get-AllRecordings |
         Where-Object { $_.LastWriteTime -lt $cut } |
         ForEach-Object { try { Remove-Item $_.FullName -Force; Log ("retention removed " + $_.Name) } catch {} }
 }
