@@ -4,7 +4,7 @@
     whether each stream is actively growing right now, free disk, and any
     stalls/restarts logged. Safe to run anytime.
 #>
-param([string]$Root = 'D:\Reolink_record')
+param([string]$Root = 'E:\Reolink_record')
 
 function Get-HandleLen($p) {
     try { $fs = [IO.File]::Open($p, 'Open', 'Read', 'ReadWrite'); $l = $fs.Length; $fs.Dispose(); $l } catch { 0 }

@@ -16,7 +16,7 @@
 #>
 
 param(
-    [string]$ConfigPath = 'D:\Reolink_record\recorder.config.psd1'
+    [string]$ConfigPath = 'E:\Reolink_record\recorder.config.psd1'
 )
 
 $ErrorActionPreference = 'Continue'
@@ -37,7 +37,12 @@ function Log([string]$m) {
 }
 
 # single-instance guard: if a recorder is already running, exit quietly
-$script:recorderMutex = New-Object System.Threading.Mutex($false, 'ReolinkRtspRecorder')
+try {
+    # Global = cross-session (so a SYSTEM instance and a user instance can't both run)
+    $script:recorderMutex = New-Object System.Threading.Mutex($false, 'Global\ReolinkRtspRecorder')
+} catch {
+    $script:recorderMutex = New-Object System.Threading.Mutex($false, 'ReolinkRtspRecorder')
+}
 if (-not $script:recorderMutex.WaitOne(0)) {
     Write-Host 'Another recorder instance is already running; exiting.'
     exit 0
@@ -173,7 +178,8 @@ while ($true) {
             $procs[$ch]    = Start-Channel $n
             $lastSize[$ch] = 0
             $lastGrew[$ch] = Get-Date
-            $lastName[$ch] = ''
+            # NOTE: do NOT clear $lastName here - keep it so the rollover branch
+            # renames the interrupted segment (end = the restart's new start time).
             Log ("CH{0} started (pid {1})" -f $ch, $procs[$ch].Id)
             Start-Sleep -Seconds 2   # stagger connections
         }

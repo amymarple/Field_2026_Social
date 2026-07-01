@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mkdir -p preprocessing/security_camera preprocessing/lfp_recording preprocessing/data_merging preprocessing/computer_vision)"
+      "Bash(mkdir -p preprocessing/security_camera preprocessing/lfp_recording preprocessing/data_merging preprocessing/computer_vision)",
+      "PowerShell(Get-CimInstance Win32_Processor)",
+      "mcp__Claude_in_Chrome__list_connected_browsers",
+      "mcp__Claude_in_Chrome__tabs_context_mcp"
     ],
     "deny": [],
     "ask": []

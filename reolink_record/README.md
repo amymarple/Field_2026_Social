@@ -23,6 +23,8 @@ copy as backup.
 | File | Purpose |
 |---|---|
 | `rtsp_record.ps1` | Supervisor: launches/keeps-alive one ffmpeg per channel, retention, disk guard. **No secrets.** |
+| `check_recording_continuity.ps1` | Read-only QC audit for time gaps between recording files and stale SmartPSS placeholder writes. |
+| `install_recording_continuity_check_task_system.ps1` | Installs the continuity audit as a daily SYSTEM scheduled task. |
 | `D:\Reolink_record\recorder.config.psd1` | NVR IP, **credentials**, channels, paths, retention. **Lives on D:, not in git.** |
 | `D:\Reolink_record\bin\ffmpeg.exe` | Pinned ffmpeg copy (version-stable). |
 | `D:\Reolink_record\logs\` | `recorder.log` (supervisor) + `CH0x.ffmpeg.log` (per-stream stderr). |
@@ -57,12 +59,49 @@ Get-Process ffmpeg | Measure-Object
 # tail the supervisor log
 Get-Content D:\Reolink_record\logs\recorder.log -Tail 20
 
+# daily continuity/gap QC, manual run
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\Cornell\Documents\GitHub\Field_2026_Social\reolink_record\check_recording_continuity.ps1"
+
+# install the daily 00:10 SYSTEM continuity task; run from Administrator PowerShell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\Cornell\Documents\GitHub\Field_2026_Social\reolink_record\install_recording_continuity_check_task_system.ps1"
+
 # start / stop the whole thing
 Start-ScheduledTask  -TaskName 'Reolink RTSP Recorder'
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
   Where-Object { $_.CommandLine -like '*rtsp_record*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Get-Process ffmpeg | Stop-Process -Force
 ```
+
+## Daily continuity QC
+
+`check_recording_continuity.ps1` is the daily 24/7 recording audit. It checks:
+
+- Reolink RTSP hourly MP4 files under the configured `E:\Reolink_record` root.
+- EmpireTech thermal/visual hourly MP4 files under the configured
+  `E:\thermal_record` root.
+- SmartPSS PC-NVR numbered placeholder files under `E:\media`, when present.
+
+Reports are written to `E:\recording_qc` by default:
+
+```
+E:\recording_qc\latest_recording_continuity.txt
+E:\recording_qc\latest_recording_continuity.json
+E:\recording_qc\recording_continuity_YYYYMMDD_HHMMSS.txt
+E:\recording_qc\recording_continuity_YYYYMMDD_HHMMSS.json
+```
+
+Exit codes:
+
+- `0`: no errors or warnings.
+- `1`: warning only, such as a very low-rate stream not growing during the short
+  sample but still recently touched.
+- `2`: error, such as a gap between files, missing channel folder, no files, or a
+  stale active recording.
+
+Important SmartPSS limitation: the `E:\media` placeholder blocks do not expose
+per-channel recording start/end times through the filesystem. The QC script can
+confirm recent placeholder write activity, but exact SmartPSS playback
+continuity still has to be checked through SmartPSS playback/index tools.
 
 ## Storage reality (important)
 

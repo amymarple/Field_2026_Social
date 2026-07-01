@@ -1,0 +1,49 @@
+# Data manifest — camera-microphone environmental audio (CH01/CH02)
+# See implementation_plan/2026-06-29-environmental-audio-pipeline.md and
+# change_log/2026-06-29-environmental-audio-pipeline.md.
+
+run_name: camera_audio_2026
+experiment: Field_2026_Social — outdoor 40x20 ft paddock
+modality: ambient/environmental audio embedded in Reolink video
+
+timezone:
+  data_clock_utc: false             # filename wallclock, local time (NOT UTC-stamped)
+  local: EDT (UTC-04:00)            # field PC / recorder local time
+  clock_source: Reolink camera/NVR filename wallclock (per-channel)
+
+units:
+  level: relative camera-mic dBFS (full-scale ref = 1.0)   # NOT calibrated SPL
+  note: >
+    Reolink camera mics are not calibrated sound meters; AAC compression, camera gain,
+    and possible AGC affect amplitude. Treat all levels as relative covariates only.
+
+source_audio:
+  channels: [CH01, CH02]            # Duo 3 mics; CH03-06 carry a silent track
+  codec: AAC LC, 16 kHz, mono       # embedded in the hourly MP4s under E:\Reolink_record\CHxx
+  usable_band_hz: [0, 8000]         # 16 kHz sampling -> 8 kHz ceiling
+  out_of_scope: rat ultrasonic vocalizations (>20 kHz; needs a dedicated >=250 kHz mic)
+
+mic_on:
+  interval_start: '2026-06-29 12:00:00'   # config mic_on_after; physical enable ~12:18
+  before: silent / not biologically meaningful — flagged pre_mic_enable / silent and excluded
+  history_note: >
+    Mics were briefly reset to OFF during the 2026-06-29 NVR channel reconfig
+    (see change_log/2026-06-29-nvr-ip-change-recording-gap.md), then re-enabled.
+
+derived_outputs:
+  path: audio_analysis/outputs/audio_features_<CHxx>_<date>.csv   # git-ignored
+  window_s: 60
+  features: [leq/l10/l50/l90/peak_dbfs_relative, band_0_1k/1_2k/2_8k_db,
+             centroid_hz, rolloff_hz, aci, bi_2_8k_camera, ndsi_1_2k_vs_2_8k_camera, adi]
+  indices_note: BI/NDSI are camera-specific band-limited variants; compare only within this dataset.
+  qc_flags: [ok, silent, pre_mic_enable, clipped, decode_error, timeline_gap, partial_window, too_short]
+
+alignment:
+  within_channel: audio and video share the camera/NVR clock (inherent).
+  cross_device: >
+    Alignment to WISER / weather is timestamp-based only and UNVERIFIED — do not treat as
+    synchronized until a shared event is independently confirmed.
+
+provenance:
+  raw_access: read-only (raw MP4s never modified)
+  decode: ffmpeg E:\Reolink_record\bin\ffmpeg.exe -> 16 kHz mono f32 PCM (streamed, no temp WAV)

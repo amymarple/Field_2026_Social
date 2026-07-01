@@ -708,50 +708,62 @@ IsPartial(path) {
     return false
 }
 
+; Signature of a directory tree: "<fileCount>/<totalBytes>". Changes whenever a
+; file is added, removed, or grows - used as an activity heartbeat.
+DirSignature(dir) {
+    if (dir = "" || !DirExist(dir))
+        return "0/0"
+    cnt := 0
+    total := 0
+    Loop Files, dir "\*.*", "R" {
+        cnt++
+        total += A_LoopFileSize
+    }
+    return cnt "/" total
+}
+
 WaitForDownloads(baseline, targetDir) {
     stagingDir := Conf("Monitor", "StagingDir", "")
-    timeoutMs  := ConfInt("Waits", "DownloadTimeoutMs", 300000)
-    pollMs     := ConfInt("Waits", "PollIntervalMs", 2000)
-    stableMs   := ConfInt("Monitor", "StableSeconds", 10) * 1000
-    graceMs    := ConfInt("Monitor", "NoFileGraceMs", 20000)
+    tempDir    := Conf("Monitor", "TempDir", "")
+    timeoutMs  := ConfInt("Waits", "DownloadTimeoutMs", 5400000)   ; 90 min default
+    pollMs     := ConfInt("Waits", "PollIntervalMs", 3000)
+    quietMs    := ConfInt("Monitor", "QuietSeconds", 120) * 1000
+    graceMs    := ConfInt("Monitor", "NoFileGraceMs", 120000)
 
     if (stagingDir = "" || !DirExist(stagingDir)) {
         return Map("ok", false, "downloaded", false, "count", 0, "bytes", 0,
             "error", "StagingDir missing/invalid", "timedout", false)
     }
 
-    startT     := A_TickCount
-    lastChange := A_TickCount
-    prevSig    := ""
-    seenNew    := false
-    timedOut   := false
+    ; Reolink writes the in-progress file to TempDir and only drops the finished
+    ; .mp4 into StagingDir minutes later. Watch BOTH: as long as either changes,
+    ; a download is still active. "Done" = both quiet for quietMs.
+    startT       := A_TickCount
+    lastActivity := A_TickCount
+    prevSig      := ""
+    seenNew      := false
+    timedOut     := false
 
     loop {
-        cur       := SnapshotDir(stagingDir)
-        newCount  := 0
-        totalSize := 0
-        partial   := false
-        for path, size in cur {
-            if baseline.Has(path)
-                continue
-            newCount++
-            totalSize += size
-            if IsPartial(path)
-                partial := true
+        sig := DirSignature(stagingDir) "|" DirSignature(tempDir)
+        if (sig != prevSig) {
+            prevSig := sig
+            lastActivity := A_TickCount
+        }
+
+        ; count finished (non-partial) new files in staging
+        newCount := 0
+        for path, size in SnapshotDir(stagingDir) {
+            if (!baseline.Has(path) && !IsPartial(path))
+                newCount++
         }
         if (newCount > 0)
             seenNew := true
 
-        sig := newCount "/" totalSize
-        if (sig != prevSig) {
-            prevSig := sig
-            lastChange := A_TickCount
-        }
-
-        if (seenNew && !partial && (A_TickCount - lastChange >= stableMs))
-            break
+        if (seenNew && (A_TickCount - lastActivity >= quietMs))
+            break                       ; a file landed and none since for quietMs -> done
         if (!seenNew && (A_TickCount - startT >= graceMs))
-            break                       ; nothing to download (empty hour) - not an error
+            break                       ; nothing ever started within grace -> empty day
         if (A_TickCount - startT >= timeoutMs) {
             timedOut := true
             break

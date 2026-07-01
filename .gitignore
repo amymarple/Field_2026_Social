@@ -216,3 +216,31 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# WISER hourly position/occupancy PNGs are written off-repo (default D:\Wiser_plot)
+# and never committed. This is only a safety net in case --output is pointed back
+# into the repo; the fixed-position result CSVs under outputs/ stay tracked.
+wiser_tracking_analysis/outputs/occupancy/
+
+# Environmental-audio pipeline: extracted feature CSVs + metadata + plots are derived
+# data (copied to the main analysis computer), never committed.
+audio_analysis/outputs/
+
+# --- Large / derived artifacts: never commit (keep only source scripts) ---
+# Model weights (YOLO, torch, onnx, tensorrt): downloadable/reproducible, not source.
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+
+# CV pipeline runtime artifacts: training runs and datasets are derived/large —
+# only the source .py scripts belong in git.
+preprocessing/computer_vision/runs/
+preprocessing/computer_vision/dataset/
+
+# WISER: all derived outputs (cleaned CSVs, occupancy/scatter PNGs, layout images).
+# The small tracked result summaries under outputs/ are kept explicitly (they are
+# added before this rule bites, or force-added).
+wiser_tracking_analysis/outputs/*.png
+wiser_tracking_analysis/outputs/*_cleaned.csv
