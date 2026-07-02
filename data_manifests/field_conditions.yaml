@@ -1,0 +1,42 @@
+# Field conditions log — weather / visibility windows that degrade the video analysis.
+# Running file (append new observations by date). Analysis (CV: shelter_sleep, occupancy,
+# detection; also audio) should EXCLUDE or CAVEAT these windows:
+#   fog  -> low visibility -> detection unreliable, ROI-motion noisy.
+#   rain -> raindrops / water motion in the ROI -> FALSE "occupied-high-motion"; detection degraded.
+#
+# CLOCK CAVEAT: times below are as OBSERVED by the user (local wall clock). The Reolink on-screen
+# (OSD) clock runs ~1 h BEHIND the recording FILENAMES on this rig — when mapping a window to
+# specific hourly files, reconcile against the filename timestamps (see reolink_record notes).
+
+conditions:
+  - date: 2026-06-30
+    start: "03:00"
+    end:   "07:00"
+    type:  fog
+    channels: [CH05]        # noted on CH05; fog is field-wide so likely affects CH06 too
+    affects: [detection, motion]
+    note: "foggy"
+
+  - date: 2026-06-30
+    start: "17:25"
+    end:   "17:50"
+    type:  rain
+    channels: all
+    affects: [detection, motion]
+    note: "afternoon rain — expect false occupied-high-motion from drops/water"
+
+  - date: 2026-06-30
+    start: "22:30"
+    end:   "22:55"
+    type:  rain
+    channels: all
+    affects: [detection, motion]
+    note: "rain"
+
+  - date: 2026-06-30
+    start: "23:00"
+    end:   null             # open-ended / ongoing at time of logging
+    type:  fog
+    channels: all
+    affects: [detection, motion]
+    note: "foggy from 23:00 onward — set an end time when it clears"

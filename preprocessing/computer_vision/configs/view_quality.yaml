@@ -1,0 +1,41 @@
+# Thresholds for view_quality.py (CH05/CH06 IR-window shelter cams).
+# These override the built-in DEFAULTS in view_quality.py. Sharpness/contrast are
+# CONTENT-dependent -> tune per camera on real frames (run a few clear vs foggy hours and
+# read the printed metrics). Exposure/black thresholds mirror reolink_record/overexposure_check.ps1.
+view_quality:
+  # near-black (dead feed / covered / too dark) -> unusable
+  dark_luma: 16               # pixel luma <= this counts as black
+  dark_ratio_unusable: 0.80   # ROI fraction black at/above this -> unusable
+  mean_low_unusable: 12       # ROI mean luma at/below this -> unusable
+
+  # glare / blown-out (sun on the glass) -> degraded, or unusable if severe
+  sat_luma: 250               # pixel luma >= this counts as saturated
+  sat_ratio_degraded: 0.12
+  sat_ratio_unusable: 0.35
+  mean_high_unusable: 235
+
+  # fog / condensation on the glass -> soft (low sharpness) + washed out (low contrast)
+  sharpness_degraded: 40.0    # variance-of-Laplacian below this -> degraded
+  sharpness_unusable: 8.0     # ... below this -> unusable
+  contrast_degraded: 18.0     # ROI std below this -> degraded
+  contrast_unusable: 7.0
+
+  # robust inside motion (glass-noise-resistant, dark-blob keyed)
+  motion_pix_thresh: 18.0     # per-pixel darkening vs median background to count as changed
+  open_ksize: 3               # morphological-open kernel size (kills rain/pixel speckle)
+  min_blob_area_frac: 0.0015  # a rat-sized blob is at least this fraction of the ROI area
+  motion_thresh: 0.30         # inside_motion_score (% of ROI) above this = high-motion
+  present_motion_floor: 0.08  # score above this = present even if the detector missed
+
+# Per-camera fog thresholds. Fog-on-glass BRIGHTENS the inside ROI (IR backscatter) and (on CH05)
+# softens it -> flagged degraded when mean >= fog_mean AND sharpness <= fog_sharpness. Baselines
+# differ per camera, so these are per-channel. CALIBRATED on the 2026-06-30 03:00-07:00 fog event
+# (fog hours 4-5 vs cleared-morning hours 9-10); re-probe and adjust if a later fog looks different:
+#   python view_quality.py --probe --channel CH05 --date <d> --hours <foggy hrs>
+channels:
+  CH05:
+    fog_mean: 120.0       # clear ROI mean maxed ~114; fog >=129
+    fog_sharpness: 30000  # fog sharpness <=~24k; clear >=~34k
+  CH06:
+    fog_mean: 110.0       # clear ROI mean maxed ~106; fog >=115
+    fog_sharpness: 55000  # fog sharpness <=~54k; bright-sharp clear stays above

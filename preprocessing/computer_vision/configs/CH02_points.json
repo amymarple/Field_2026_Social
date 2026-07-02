@@ -1,0 +1,33 @@
+{
+  "channel": "CH02",
+  "landmarks": [
+    "A0",
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "B0",
+    "B1",
+    "B2",
+    "B3",
+    "B4",
+    "C0",
+    "C1",
+    "C2",
+    "C3",
+    "C4",
+    "M1",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "N1",
+    "N2",
+    "N3",
+    "N4",
+    "N5",
+    "N6"
+  ],
+  "_comment": "names from field_layout; '<pole>_top'=wall-top crossing; skip unseen with 's'"
+}

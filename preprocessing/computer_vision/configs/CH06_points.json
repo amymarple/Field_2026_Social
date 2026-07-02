@@ -1,0 +1,25 @@
+{
+  "channel": "CH06",
+  "landmarks": [
+    "right_XloYlo",
+    "right_XhiYlo",
+    "right_XhiYhi",
+    "right_XloYhi",
+    "A0",
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "B0",
+    "B1",
+    "B2",
+    "B3",
+    "B4",
+    "C0",
+    "C1",
+    "C2",
+    "C3",
+    "C4"
+  ],
+  "_comment": "names from field_layout; '<pole>_top'=wall-top crossing; skip unseen with 's'"
+}
