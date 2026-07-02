@@ -1,0 +1,18 @@
+# transient / generated artifacts
+scratch/
+tracks/
+outputs/
+dataset/          # sampled frames + labels (large; keep data off git)
+runs/             # ultralytics training runs / weights / plots
+__pycache__/
+*.pyc
+
+# model weights (downloaded on demand)
+*.pt
+
+# per-camera reference stills and grid overlays (regenerate locally)
+configs/*_reference.png
+configs/*_grid_overlay.png
+
+# NOTE: real per-camera calibrations (configs/CH*_homography.json) and your filled
+# configs/CH*_points.json ARE worth committing once measured on site.

@@ -1,0 +1,20 @@
+# Conda env for the field-PC CV pipeline.
+#   mamba env create -f environment.yml      (or: conda env create -f environment.yml)
+#   conda activate cv
+# Then install GPU PyTorch (Blackwell needs cu128) INSIDE the env:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+name: cv
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy>=1.26
+  - pandas>=2.2
+  - matplotlib>=3.8
+  - opencv>=4.10
+  - tqdm>=4.66
+  - shapely>=2.0
+  - pip:
+      - ultralytics>=8.3
+      - av>=12.0
