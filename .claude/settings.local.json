@@ -1,7 +1,17 @@
 {
   "permissions": {
     "allow": [
-      "Bash(mkdir -p preprocessing/security_camera preprocessing/lfp_recording preprocessing/data_merging preprocessing/computer_vision)"
+      "Bash(mkdir -p preprocessing/security_camera preprocessing/lfp_recording preprocessing/data_merging preprocessing/computer_vision)",
+      "Bash(git -C \"C:/Users/Cornell/Documents/GitHub/Field_2026_Social\" status --porcelain)",
+      "PowerShell(git -C $repo add CLAUDE.md)",
+      "PowerShell(git -C $repo status --porcelain)",
+      "PowerShell($repo = \"C:\\\\Users\\\\Cornell\\\\Documents\\\\GitHub\\\\Field_2026_Social\")",
+      "PowerShell(git -C $repo status -sb)",
+      "PowerShell(git -C $repo log --oneline -1 origin/main 2>&1)",
+      "PowerShell(git -C $repo remote -v)",
+      "PowerShell(\"---\")",
+      "PowerShell(\"---remote---\")",
+      "Bash(git fetch *)"
     ],
     "deny": [],
     "ask": []
