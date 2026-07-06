@@ -84,6 +84,16 @@ def main() -> None:
     df = w.add_speed(df)
     roi_cfg = w.load_rois(args.rois)
     boundary = roi_cfg.get("boundary") if roi_cfg else None
+    # Prefer the SURVEYED paddock boundary once the frame is georeferenced: a
+    # confirmed transform yields a verified boundary that supersedes the
+    # provisional ROI-file rectangle for edge/thigmotaxis and out-of-bounds QC.
+    # No-op until a confirmed survey exists (load returns None) -> identical output.
+    transform = w.load_field_transform()
+    verified = w.verified_boundary_in_wiser(transform)
+    if verified is not None:
+        boundary = verified
+        print(f"  georeferenced boundary (in): "
+              f"{[round(v, 1) for v in verified['rect']]} (supersedes ROI-file boundary)")
     df = w.add_validity_flags(df, boundary=boundary, jitter_floor_in=jitter_floor_in)
     df = w.apply_tag_cutoffs(df)
     win = w.select_route_window(df, clock_start=args.clock_start,
@@ -91,6 +101,8 @@ def main() -> None:
                                 tz_offset_hours=args.tz_offset, dates=args.dates)
     if win.empty:
         raise SystemExit("[route] No cleaned fixes in the requested window.")
+    if transform is not None:                       # additive field-cm for CV cross-checks
+        win = w.apply_field_transform(win, transform)
     nights = sorted(win["night"].unique())
     per_night = win.groupby("night").size().to_dict()
     print(f"  window: {len(win):,} cleaned fixes, nights={nights}, "
@@ -282,7 +294,12 @@ def main() -> None:
         "interior_vs_full_corridor_iou": (
             float(interior_info["interior_vs_full_corridor_iou"])
             if interior_info.get("interior_vs_full_corridor_iou") is not None else None),
-        "coordinate_note": "WISER native inches, offset origin, UNVERIFIED vs paddock",
+        "georeferenced": bool(transform),
+        "boundary_source": ("georeference transform (surveyed)" if verified is not None
+                            else "wiser_rois.json (provisional)" if boundary else "none"),
+        "coordinate_note": ("WISER native inches; georeferenced to the field frame "
+                            "(x_field_cm/y_field_cm added)" if transform is not None
+                            else "WISER native inches, offset origin, UNVERIFIED vs paddock"),
         "notes": "candidate route structure; straightness path-length is jitter-inflated; "
                  "Sova/12409 present night 1 only (deceased, cutoff applied).",
     })

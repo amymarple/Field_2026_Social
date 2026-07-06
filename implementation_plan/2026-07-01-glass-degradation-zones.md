@@ -76,3 +76,11 @@ weather_logged, usable_for_headline_summary, usable_for_coarse_activity`
 fog/rain/glare TYPE classification + dark-stripe/implant-vs-drip channel; Farneback/optical-flow
 coherence; strong directional entry/exit occupancy accounting; detector fine-tune on degraded frames;
 auto-suggesting unlogged weather windows back into `field_conditions.yaml`.
+
+## Update (2026-07-01) — analysis-PC portability (small)
+
+To run this verification off the field PC, `extract_clip.py` recording root + ffmpeg/ffprobe were made
+env-overridable (`REOLINK_REC_ROOT`/`REOLINK_FFMPEG`/`REOLINK_FFPROBE`; defaults unchanged), `scan_for_rats.py`
+reuses `ec.FFPROBE`, and `verify_gpu.py` no longer asserts a specific GPU. No behavior change on the field
+PC. Verification results and the remaining detector-dependent steps are recorded in the matching
+[change log](../change_log/2026-07-01-glass-degradation-zones.md).

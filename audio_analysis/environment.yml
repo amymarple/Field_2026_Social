@@ -18,6 +18,7 @@ dependencies:
   - matplotlib
   - librosa
   - pyyaml
+  - ffmpeg          # analysis-PC decode (field PC uses its own E:\...\bin\ffmpeg.exe)
   - pip
   - pip:
       # soundfile is 'pysoundfile' on conda-forge and is pulled in by librosa anyway;

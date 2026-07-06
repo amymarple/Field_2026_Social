@@ -1,0 +1,18 @@
+# Generated episode store (reproducible from generate_synthetic_episodes.py).
+data/*.parquet
+data/*.jsonl
+
+# Generated video-preview stand-in clip (built on demand by utils.video_preview).
+data/*.mp4
+
+# Human outputs — new, timestamped, never source-of-truth.
+outputs/annotations/*.jsonl
+outputs/evaluations/*.jsonl
+
+# Keep the folders themselves.
+!data/.gitkeep
+!outputs/annotations/.gitkeep
+!outputs/evaluations/.gitkeep
+
+__pycache__/
+*.pyc

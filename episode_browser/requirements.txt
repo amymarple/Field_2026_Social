@@ -1,0 +1,15 @@
+# Episode Browser — minimal prototype deps.
+# The DATA LAYER (utils/, generator, selftest) needs only:
+pandas>=2.0
+numpy>=1.24
+pyyaml>=6.0
+
+# Primary columnar store. Optional: without it the store falls back to JSONL.
+pyarrow>=14.0
+
+# UI only (app.py). Streamlit bundles altair, which the charts use.
+streamlit>=1.30
+
+# Video preview (Detail tab) shells out to ffmpeg — an EXTERNAL binary, not a pip dep.
+# Found on PATH, via EPISODE_BROWSER_FFMPEG, or in E:/D:\Reolink_record\bin. Optional:
+# without it every other feature works and only the frame preview is disabled.

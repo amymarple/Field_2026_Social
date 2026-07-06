@@ -7,6 +7,8 @@ Detector-assisted footage scanner. TWO decoupled modes, separate outputs:
     so resting near-duplicates are dropped. Copies frames -> dataset/rat/images and writes
     outputs/<CH>_harvest_manifest.csv.
         python scan_for_rats.py --channel CH05 --date 2026-06-28 --hours 19 20
+    Add --no-detector to keep ALL time-diverse frames (dedup only, no detection needed) — for
+    out-of-distribution views like the shelter cams where the detector under-fires.
 
   OCCUPANCY (--occupancy-hz) -- shelter occupancy time series, saves NO frames.
     One streamed full decode at ~N Hz (vid_stride); the small shelter FOV means brief visits,
@@ -33,7 +35,7 @@ import pandas as pd
 import extract_clip as ec        # reuse FFMPEG path + _run_ffmpeg
 
 HERE = Path(__file__).resolve().parent
-FFPROBE = ec.REC_ROOT / "bin" / "ffprobe.exe"
+FFPROBE = ec.FFPROBE   # env-overridable (defaults next to ec.FFMPEG); see extract_clip.py
 _TS_RE = re.compile(r"_(\d{4}-\d{2}-\d{2})_(\d{2})-(\d{2})-(\d{2})")
 
 
@@ -118,9 +120,15 @@ def _gray64(img) -> np.ndarray:
 def harvest(args, files, model) -> None:
     """LABELING harvest: sparse seek-sampling + frame-difference dedup -> diverse frames.
 
-    Keeps only rat-present/borderline frames that DIFFER from the last kept one (so resting
-    near-duplicates are dropped). Copies frames into the dataset; writes a selection manifest.
-    Does NOT produce occupancy estimates.
+    Keeps frames that DIFFER from the last kept one (so resting near-duplicates are dropped) and
+    copies them into the dataset; writes a selection manifest. Does NOT produce occupancy estimates.
+
+    Two gating modes:
+      - detector-assisted (default): keep only rat-present/borderline frames (conf >= conf_low).
+      - `--no-detector` (model is None): keep ALL time-diverse frames regardless of detection. Use
+        this for out-of-distribution views (e.g. the top-down through-mesh/through-glass shelter cams,
+        where the current detector under-fires) so resting/occluded rats aren't silently dropped;
+        empty frames you label become valid negatives.
     """
     out_dir = Path(args.out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     tmp = HERE / "scratch" / f"harvest_{args.channel}"
@@ -131,26 +139,37 @@ def harvest(args, files, model) -> None:
         start, _ = clip_start(f.name)
         frames, offs = sample_frames(f, args.every_sec, args.scale, tmp, threads=args.ffmpeg_threads)
         print(f"{f.name}: {len(frames)} frames sampled @ {args.every_sec:.0f}s")
-        # predict in small batches; passing the whole list = one giant batch -> CUDA OOM
-        for ci in range(0, len(frames), args.batch):
-          chunk = frames[ci:ci + args.batch]
-          for j, r in enumerate(model.predict(chunk, conf=args.conf_low, classes=[0], imgsz=args.imgsz,
-                                              device=args.device, verbose=False)):
-            idx = ci + j
+        # per-frame (n, max_conf, tag); detector-gated unless --no-detector
+        meta = {}
+        if model is not None:
+            # predict in small batches; passing the whole list = one giant batch -> CUDA OOM
+            for ci in range(0, len(frames), args.batch):
+                for j, r in enumerate(model.predict(frames[ci:ci + args.batch], conf=args.conf_low,
+                                                    classes=[0], imgsz=args.imgsz, device=args.device,
+                                                    verbose=False)):
+                    n = 0 if r.boxes is None else len(r.boxes)
+                    mc = float(r.boxes.conf.max()) if n else 0.0
+                    tag = "present" if mc >= args.conf_high else ("borderline" if mc >= args.conf_low else None)
+                    meta[ci + j] = (n, mc, tag)
+        for idx, path in enumerate(frames):
             off = offs[idx]
-            n = 0 if r.boxes is None else len(r.boxes)
-            mc = float(r.boxes.conf.max()) if n else 0.0
-            tag = "present" if mc >= args.conf_high else ("borderline" if mc >= args.conf_low else None)
-            if not tag:
-                continue                                   # no (even tentative) rat -> not a label candidate
-            small = _gray64(r.orig_img)
+            if model is not None:
+                n, mc, tag = meta.get(idx, (0, 0.0, None))
+                if not tag:
+                    continue                               # no (even tentative) rat -> not a label candidate
+            else:
+                n, mc, tag = -1, float("nan"), "unlabeled"  # keep everything time-diverse to hand-label
+            img = cv2.imread(str(path))
+            if img is None:
+                continue
+            small = _gray64(img)
             if last_small is not None and float(np.abs(small - last_small).mean()) < args.dedup_thresh:
                 continue                                   # too similar to the last kept frame -> redundant
             last_small = small
             t = (start + pd.Timedelta(seconds=off)) if start is not None else off
             dest = out_dir / f"{args.channel}_{f.stem}_{int(off)}s.png"
             kept.append({"dest": dest.name, "src_file": f.name, "t": t, "offset_s": off,
-                         "n_rats": n, "max_conf": round(mc, 3), "tag": tag, "_path": frames[idx]})
+                         "n_rats": n, "max_conf": round(mc, 3), "tag": tag, "_path": path})
     if len(kept) > args.max_keep:                          # cap, spaced evenly across time
         step = len(kept) / args.max_keep
         kept = [kept[int(i * step)] for i in range(args.max_keep)]
@@ -163,9 +182,13 @@ def harvest(args, files, model) -> None:
     outputs = HERE / "outputs"; outputs.mkdir(exist_ok=True)
     man = outputs / f"{args.channel}_harvest_manifest.csv"
     pd.DataFrame([{kk: v for kk, v in k.items() if kk != "_path"} for k in kept]).to_csv(man, index=False)
-    npres = sum(k["tag"] == "present" for k in kept)
-    print(f"\nHARVEST: copied {copied} new frames to {out_dir} "
-          f"({npres} present, {len(kept) - npres} borderline after dedup, thresh={args.dedup_thresh})")
+    if model is None:
+        print(f"\nHARVEST (--no-detector): copied {copied} time-diverse frames to {out_dir} "
+              f"({len(kept)} kept after dedup, thresh={args.dedup_thresh}) — all UNLABELED, label from scratch")
+    else:
+        npres = sum(k["tag"] == "present" for k in kept)
+        print(f"\nHARVEST: copied {copied} new frames to {out_dir} "
+              f"({npres} present, {len(kept) - npres} borderline after dedup, thresh={args.dedup_thresh})")
     print(f"manifest -> {man}")
     print("next: label them -> python label_frames.py ; then retrain -> python train_detector.py")
 
@@ -232,6 +255,9 @@ def main() -> None:
                     help="harvest: keep a frame only if its 64x64 gray mean-abs diff from the last "
                          "kept >= this. Lower keeps MORE (safer); raise it if you get near-duplicates")
     ap.add_argument("--max-keep", type=int, default=300, help="harvest: cap frames copied for labeling")
+    ap.add_argument("--no-detector", action="store_true",
+                    help="harvest WITHOUT the detector: keep all time-diverse frames (dedup only). Use "
+                         "for out-of-distribution views (shelter cams) where the detector under-fires.")
     ap.add_argument("--out-dir", default=str(HERE / "dataset" / "rat" / "images"))
     # occupancy mode (presence -> dense streamed decode, counts only, no frames)
     ap.add_argument("--occupancy-hz", type=float, nargs="?", const=1.0, default=None,
@@ -241,9 +267,13 @@ def main() -> None:
     files = resolve_files(args)
     if not files:
         raise SystemExit("no files (give --src, or --date [--hours]).")
+
+    if args.no_detector and args.occupancy_hz is None:
+        harvest(args, files, model=None)                   # detector-free labeling harvest
+        return
+
     if not Path(args.weights).exists():
         raise SystemExit(f"weights not found: {args.weights} (train one with train_detector.py)")
-
     from ultralytics import YOLO
     model = YOLO(args.weights)
     if args.occupancy_hz is not None:

@@ -6,6 +6,10 @@ estimate tag positions in real time.
 
 **Coordinate units: inches** (system configured at 1.82 inches/pixel).
 
+> **Status:** see [ANALYSIS_STATUS.md](ANALYSIS_STATUS.md) for what's done vs candidate vs
+> placeholder across the pipeline, and the prioritized next steps to make the candidate
+> findings publishable.
+
 ---
 
 ## Fixed-position test results — 2026-06-22
@@ -182,6 +186,40 @@ expect ground-truth positions — it outputs cleaned trajectory data and
 basic data-quality checks.
 
 ---
+
+## Georeferencing (WISER frame → physical paddock)
+
+The WISER frame is native **inches with an offset origin**, unverified against the physical
+paddock — so wall/thigmotaxis/route-vs-boundary claims risk being coordinate artifacts. The
+georeference tooling fits a similarity transform (rotation + uniform scale + translation) from a
+short field survey, tying WISER inches to the CV pipeline's surveyed field frame (**cm, origin at
+pole A0**; `preprocessing/computer_vision/field_coords.py`).
+
+- `src/field_transform.py` — the fit core (Umeyama similarity, affine diagnostic, robust
+  outlier rejection, apply/invert, config I/O). Verify offline: `python scripts/selftest_georeference.py`.
+- `scripts/georeference_wiser.py` — reads the pole survey, extracts each dwell's
+  validity-filtered **median** WISER position (read-only from the DB), fits the transform, and
+  writes `configs/wiser_to_field_transform.json` + a validation overlay.
+
+**WISER is noisy** (~7 in median jitter, worse at edges/corners). The transform fixes only the
+*frame*, never per-fix noise; fit residuals bottom out at the ~7 in floor, not zero. So: dwell each
+pole **~3–5 min** and use **≥6 well-distributed poles** (mix interior + edge) so the median
+averages jitter down and no single edge read dominates.
+
+```powershell
+# 1. Fill in the dwell windows (or manual WISER x,y) in the survey template:
+#    wiser_tracking_analysis\configs\wiser_georef_survey.csv
+# 2. Fit (writes configs\wiser_to_field_transform.json + outputs\georef_validation.png):
+python scripts\georeference_wiser.py
+```
+
+QC gates `confirmed`: scale must land near 2.54 cm/in, inlier residuals near the jitter floor,
+and the affine shear negligible. Until a survey passes QC, the config stays `confirmed: false`
+and **all analyses run unchanged in inches** (the transform is a no-op). Once confirmed, drivers
+adopt the surveyed boundary via `wiser_analysis_utils.verified_boundary_in_wiser()` and can add
+`x_field_cm,y_field_cm` via `apply_field_transform()`. See
+[ANALYSIS_STATUS.md](ANALYSIS_STATUS.md) and the
+[implementation plan](../implementation_plan/2026-07-01-wiser-georeferencing.md).
 
 ## Dependencies
 

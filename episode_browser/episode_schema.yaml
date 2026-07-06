@@ -1,0 +1,167 @@
+# episode_schema.yaml — the episode repository schema (extensible).
+#
+# An EPISODE is a time-bounded behavioral unit: a stretch of being-in-a-state,
+# delimited by its entry and exit transitions — NOT necessarily a human-defined
+# behavior label. Human labels are attached AFTER the cut, as annotations.
+#
+# TWO INVARIANTS the schema exists to protect:
+#   1. Completeness is the product; scores are UI. Every segmented episode enters
+#      the store. lens_scores are filters/rankings applied over episodes, never
+#      gates deciding what enters.
+#   2. The blade is not human categories. Episodes are cut by change-points over a
+#      low-level state representation (see state_models.yaml). `zones` and `labels`
+#      are post-hoc; they never segment.
+#
+# ON-DISK FORMAT: Parquet (columnar, nested-capable, fast filtering) is primary;
+# JSONL is the human-readable alternative. CSV is a LOSSY export only — it cannot
+# hold state_vector, probabilistic zones, or lens_scores without flattening.
+#
+# `duration_s` is DERIVED at load (t_end - t_start), never stored — a stored copy
+# drifts from the canonical time source.
+
+schema_version: 1
+
+# Controlled vocabularies (open where the spec says multi-label / extensible).
+enums:
+  level: [per_animal, pair, group, environment]
+  source_streams: [video, WISER, thermal, audio, weather, field_note, synthetic]
+  # `labels` is an OPEN multi-label vocabulary; these are seed examples, not closed.
+  labels_seed:
+    - shelter_entry
+    - rest_like
+    - social_proximity
+    - group_convergence
+    - rain_response
+    - following
+    - possible_artifact
+  qc_flags_seed:
+    - id_swap
+    - unknown_identity
+    - occlusion_gap
+    - low_boundary_confidence
+    - wiser_dropout
+    - wiser_jitter
+    - fogged_view
+    - conflicting_sources
+    - thermal_ambiguous
+  light_phase: [day, night, dawn, dusk, unknown]
+  annotation_verdict: [interesting, unclear, artifact, follow_up]
+
+# Field definitions. `type` uses plain names; container types are spelled out in
+# words (avoids YAML flow-collection characters). `required` gates validation.
+fields:
+
+  # --- identity & provenance ---
+  episode_id:
+    type: string
+    required: true
+    desc: "Stable unique id."
+  schema_version:
+    type: int
+    required: true
+    desc: "This schema's version."
+  state_model_id:
+    type: string
+    required: true
+    desc: "FK into state_models.yaml. Answers 'what cut this episode?' — always resolvable."
+
+  # --- what & who ---
+  level:
+    type: enum
+    enum: level
+    required: true
+  subject_ids:
+    type: list_of_string
+    required: true
+    desc: "Subjects involved. MUST allow the literal 'unknown' and per-subject uncertainty. A tag id, not an animal name (resolve via rat_identities.csv)."
+  subject_confidence:
+    type: map_string_to_float
+    required: false
+    desc: "Optional per-subject identity confidence, keyed by subject id."
+
+  # --- time (canonical source) ---
+  t_start:
+    type: timestamp_ms
+    required: true
+    desc: "Episode entry. Canonical time source (WISER Unix-ms UTC for synthetic/WISER-cut)."
+  t_end:
+    type: timestamp_ms
+    required: true
+    desc: "Episode exit."
+  # duration_s is DERIVED at load (t_end - t_start), NOT a stored field.
+
+  # --- the low-level representation (interpreted per state_model_id) ---
+  state_vector:
+    type: map_string_to_float
+    required: true
+    desc: "Low-level features representing the episode, interpreted per state_model_id. Keys should match that model's features."
+  state_before:
+    type: map_string_to_float
+    required: false
+    desc: "Boundary context: the flanking PRIOR state. Metadata, not the episode's identity."
+  state_after:
+    type: map_string_to_float
+    required: false
+    desc: "Boundary context: the flanking NEXT state. Metadata, not the episode's identity."
+
+  # --- post-hoc spatial & semantic labels (never segment) ---
+  zones:
+    type: map_string_to_float
+    required: false
+    desc: "Probabilistic / multi-label zone membership (e.g. shelter_A 0.7, open 0.3). NEVER a single fixed enum."
+  labels:
+    type: list_of_string
+    required: false
+    desc: "Post-hoc, multi-label. Open vocabulary (see labels_seed). Attached after the cut."
+
+  # --- sources & quality ---
+  source_streams:
+    type: list_of_enum
+    enum: source_streams
+    required: true
+    desc: "Which modalities contributed to this episode."
+  boundary_confidence:
+    type: float
+    required: false
+    desc: "0..1 confidence in the entry/exit change-points."
+  identity_confidence:
+    type: float
+    required: false
+    desc: "0..1 confidence in subject identity."
+  tracking_quality:
+    type: float
+    required: false
+    desc: "0..1 tracking quality over the episode span."
+  qc_flags:
+    type: list_of_string
+    enum_seed: qc_flags_seed
+    required: false
+    desc: "Data-quality flags. Open vocabulary."
+
+  # --- lens scores: UI ranking only. Absence is FIRST-CLASS and != zero. ---
+  lens_scores:
+    type: map_string_to_float
+    required: false
+    desc: "Optional rankings: recurrence, self_surprise, joint_surprise, transition_strength, context_dependence, downstream_consequence, expert_priority. A MISSING key means 'not scored' and must be filterable as absent — never coerced to 0."
+
+  # --- environment (field condition covariates, not outcomes) ---
+  environment_context:
+    type: map_string_to_any
+    required: false
+    desc: "e.g. rain true, temperature_c 30, humidity 0.8, light_phase day. Covariates/context, never pre-assigned outcomes."
+
+  # --- links to heavy assets (paths + timestamps, NOT the media itself) ---
+  linked_assets:
+    type: map_string_to_any
+    required: false
+    desc: "Optional pointers: video_path, video_t_offset_s, trajectory_snippet, thermal_image_path, field_note_ref. The browser links; it does not embed media."
+
+  # --- human layer (kept separate from the machine cut) ---
+  notes:
+    type: string
+    required: false
+    desc: "Free-text provenance/context notes carried with the episode."
+  expert_annotations:
+    type: list_of_map
+    required: false
+    desc: "Appended annotation records (annotator_id, verdict, added_labels, note, ts, mode). Written by the browser to outputs/, never overwriting."

@@ -63,13 +63,30 @@ time_varying_structures:
 coordinate_frame:
   description: WISER native inch frame with an OFFSET origin (x does not start at 0).
   paddock_reference_in: {length_x: 480, width_y: 240}   # 40x20 ft, configurable reference only
-  georeferenced_to_paddock: false      # UNVERIFIED
+  georeferenced_to_paddock: false      # still UNVERIFIED (no confirmed transform yet)
   georeferenced_to_cv_field_layout: false  # UNVERIFIED (preprocessing/computer_vision/configs/field_layout.json)
+  georeference_tooling: wiser_tracking_analysis/scripts/georeference_wiser.py
+                        (WISER-inch -> field-cm similarity fit; see
+                        implementation_plan/2026-07-01-wiser-georeferencing.md)
+  georeference_status: >
+    Tooling ready and self-tested; flags stay false until a pole-dwell survey
+    (configs/wiser_georef_survey.csv) is run and QC passes, which writes a
+    CONFIRMED configs/wiser_to_field_transform.json. Fit residuals bottom out at
+    the ~7 in jitter floor, not zero.
   rois_boundary: wiser_tracking_analysis/configs/wiser_rois.json
-                 (provisional placeholder until placed via scripts/place_wiser_rois.py)
+                 (provisional placeholder until placed via scripts/place_wiser_rois.py;
+                 a confirmed transform yields a surveyed boundary via
+                 wiser_analysis_utils.verified_boundary_in_wiser)
 
 alignment:
   wiser_to_weather: wall-clock UTC only; UNVERIFIED to better than ~5 min (independent station clock).
+  wiser_to_cv_shelter: >
+    WISER (Unix-ms UTC) vs CV shelter cams (CH05/CH06; LOCAL NVR wallclock from the recording
+    filename). Cross-validation (change_log/2026-07-02-sleep-site-cv-crossval.md) found the best
+    occupancy-agreement lag at ~0 s residual on top of the +4 h nominal (EDT = UTC-4), i.e. the
+    NVR clock ~= EDT to within the 300 s scan grid. Still UNVERIFIED (inferred from occupancy
+    co-variation, not a shared event). Nominal ROI<->camera mapping confirmed (house_1<->CH05,
+    house_2<->CH06; joint kappa 0.66).
   wiser_to_other_devices: not attempted.
 
 derived_analyses:

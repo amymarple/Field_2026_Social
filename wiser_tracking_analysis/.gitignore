@@ -5,3 +5,4 @@ __pycache__/
 .DS_Store
 outputs/fixed_position_cleaned.csv
 outputs/formal_recording_cleaned.csv
+outputs/*.png

@@ -1,0 +1,27 @@
+# WISER georeference survey — one row per surveyed pole dwell.
+# Fit into the WISER-inch -> field-cm transform by: python scripts/georeference_wiser.py
+#
+# Columns:
+#   label        pole/landmark name from preprocessing/computer_vision/configs/field_layout.json
+#                (poles A0..C4; temp markers M1..M6/N1..N6; shelter corners <shelter>_XhiYlo etc.)
+#   shortid      WISER tag id (decimal) used for the survey dwell
+#   start_local  dwell start, LOCAL time EDT, ISO (e.g. 2026-07-02T13:05:00)
+#   end_local    dwell end,   LOCAL time EDT, ISO
+#   wiser_x      OPTIONAL manual WISER-inch x reading; if wiser_x AND wiser_y are given,
+#   wiser_y      OPTIONAL manual WISER-inch y reading; the DB window is NOT read for that row.
+#
+# Protocol: dwell the tag STATIONARY ~3-5 min at each pole (hundreds of fixes -> the median
+# averages the ~7 in jitter down). Use >= 6 WELL-DISTRIBUTED poles (mix interior + edge, e.g.
+# centre-line B0..B4 plus corners A0,C4) so noisy edge/corner reads can't dominate the fit.
+# '#' lines and blank lines are ignored. Delete the example rows below and add your own.
+#
+# --- EXAMPLE (commented; replace with real dwells) ---
+# label,shortid,start_local,end_local,wiser_x,wiser_y
+# B0,12378,2026-07-02T13:05:00,2026-07-02T13:09:00,,
+# B1,12378,2026-07-02T13:11:00,2026-07-02T13:15:00,,
+# B2,12378,2026-07-02T13:17:00,2026-07-02T13:21:00,,
+# B3,12378,2026-07-02T13:23:00,2026-07-02T13:27:00,,
+# B4,12378,2026-07-02T13:29:00,2026-07-02T13:33:00,,
+# A0,12378,2026-07-02T13:35:00,2026-07-02T13:39:00,,
+# C4,12378,2026-07-02T13:41:00,2026-07-02T13:45:00,,
+label,shortid,start_local,end_local,wiser_x,wiser_y

@@ -7,10 +7,11 @@ time. A whole hour is NEVER held in memory and NO temporary WAV is written.
 from __future__ import annotations
 
 import subprocess
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Iterator, List, Optional, Tuple
 
 import numpy as np
 
@@ -18,6 +19,39 @@ from .time_utils import RecordingFile, parse_recording_filename
 
 # Reolink hourly segments are nominally 3600 s; used to estimate the active file's span.
 DEFAULT_SEGMENT_S = 3600
+
+
+def _file_end(rf: RecordingFile) -> datetime:
+    """End of a file's span; fall back to a nominal hour when the name has no end."""
+    return rf.end or (rf.start + timedelta(seconds=DEFAULT_SEGMENT_S))
+
+
+def _dedup_overlapping(files: List[RecordingFile]) -> Tuple[List[RecordingFile], List[RecordingFile]]:
+    """Drop segments whose time span is fully covered by earlier-kept files.
+
+    Removes redundant duplicate coverage — e.g. an NVR playback export copied back into the
+    folder that sits entirely inside the RTSP recorder's hour-aligned file — so each wall-clock
+    instant is represented once. Files are taken in (start, longest-first) order; a file is kept
+    only if it extends coverage past the current maximum end, otherwise it is nested and dropped.
+    A contiguous RTSP chain never nests (each file starts at the previous file's end), so it is
+    returned intact. Partially-overlapping or gap-filling segments that extend coverage are kept.
+
+    Returns ``(kept, dropped)``, both in start order.
+    """
+    ordered = sorted(files, key=lambda r: (r.start, -( _file_end(r) - r.start).total_seconds()))
+    kept: List[RecordingFile] = []
+    dropped: List[RecordingFile] = []
+    covered_end: Optional[datetime] = None
+    for rf in ordered:
+        f_end = _file_end(rf)
+        if covered_end is not None and f_end <= covered_end:
+            dropped.append(rf)
+            continue
+        kept.append(rf)
+        covered_end = f_end if covered_end is None else max(covered_end, f_end)
+    kept.sort(key=lambda r: r.start)
+    dropped.sort(key=lambda r: r.start)
+    return kept, dropped
 
 
 class DecodeError(RuntimeError):
@@ -57,6 +91,12 @@ def find_recording_files(input_root, channel: str, *, date: Optional[str] = None
                 continue
         files.append(rf)
     files.sort(key=lambda r: r.start)
+    files, dropped = _dedup_overlapping(files)
+    for rf in dropped:
+        warnings.warn(
+            f"[audio_io] {channel}: skipping {rf.path.name} -- its span is already fully "
+            f"covered by another file (nested/overlapping duplicate, e.g. NVR backfill)."
+        )
     if max_files is not None:
         files = files[:max_files]
     return files

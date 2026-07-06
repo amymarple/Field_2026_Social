@@ -14,12 +14,20 @@ Examples
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 from pathlib import Path
 from typing import Optional
 
-REC_ROOT = Path(r"E:\Reolink_record")
-FFMPEG = REC_ROOT / "bin" / "ffmpeg.exe"
+# Recording root and ffmpeg are env-overridable so the pipeline runs off the field PC.
+# Field PC (default): recordings on E:\Reolink_record with the pinned ffmpeg in .\bin.
+# Analysis PC: set REOLINK_REC_ROOT (e.g. the synced D:\...\audio_in\Reolink_record) and
+# REOLINK_FFMPEG (e.g. the conda env's ffmpeg.exe). Unset -> unchanged field-PC behavior.
+REC_ROOT = Path(os.environ.get("REOLINK_REC_ROOT", r"E:\Reolink_record"))
+FFMPEG = Path(os.environ.get("REOLINK_FFMPEG", str(REC_ROOT / "bin" / "ffmpeg.exe")))
+# ffprobe defaults next to ffmpeg, so setting REOLINK_FFMPEG alone (e.g. to the conda env's
+# bin) locates both; REOLINK_FFPROBE can override it independently if needed.
+FFPROBE = Path(os.environ.get("REOLINK_FFPROBE", str(FFMPEG.parent / "ffprobe.exe")))
 SCRATCH = Path(__file__).resolve().parent / "scratch"
 CONFIG_DIR = Path(__file__).resolve().parent / "configs"
 

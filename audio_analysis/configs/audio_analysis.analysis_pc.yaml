@@ -1,0 +1,37 @@
+# Configuration for the environmental-audio pipeline on the ANALYSIS PC.
+# Identical to audio_analysis.yaml except input_root + ffmpeg point at analysis-PC
+# paths (transferred data + the ffmpeg inside the `audio` conda env). Run with:
+#   python scripts\extract_audio_features.py --config configs\audio_analysis.analysis_pc.yaml ...
+# All level outputs are RELATIVE camera-mic dBFS covariates (NOT calibrated SPL).
+
+# --- input / source ---------------------------------------------------------
+input_root: 'D:\Reolink_record\audio_in\Reolink_record'   # transferred CHxx\ hourly MP4 folders
+ffmpeg: 'C:\Users\Cornell\anaconda3\envs\audio\Library\bin\ffmpeg.exe'
+channels: ['CH01', 'CH02']                # mics enabled on these (others silent)
+
+# --- decode / windowing -----------------------------------------------------
+sample_rate_hz: 16000                     # ffmpeg resamples to this (camera native = 16 kHz)
+window_s: 60                              # analysis window
+subframe_s: 1                             # sub-frame for level percentiles (L10/L50/L90)
+process_partial_final_window: false       # if false, a trailing <window_s remainder -> partial_window
+min_window_s: 10                          # shorter than this -> too_short (skip features)
+
+# --- spectral / FFT ---------------------------------------------------------
+fft_nperseg: 1024                         # modest STFT (keeps it light)
+fft_noverlap: 512
+# Frequency bands (Hz). 16 kHz sampling => 8 kHz usable ceiling.
+bands:
+  band_0_1k: [0, 1000]                    # wind / rumble / low anthropophony
+  band_1_2k: [1000, 2000]                 # anthropophony proxy
+  band_2_8k: [2000, 8000]                 # biophony proxy (birds), capped at the 8 kHz ceiling
+# scikit-maad index bands (camera-specific, band-limited variants):
+anthropophony_band: [1000, 2000]
+biophony_band: [2000, 8000]
+
+# --- QC ---------------------------------------------------------------------
+silence_dbfs: -90.0                       # Leq at/below this => silent
+clip_amplitude: 0.999                     # |f32 sample| >= this => clipped
+# Default meaningful audio begins when the mics were enabled. Windows before this
+# are flagged pre_mic_enable (silent pre-noon is NOT biologically meaningful).
+mic_on_after: '2026-06-29 12:00:00'       # local wallclock (recorder filename time)
+timezone_note: 'Reolink camera/NVR filename wallclock, local time; not UTC-stamped.'

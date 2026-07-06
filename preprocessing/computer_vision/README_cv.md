@@ -134,9 +134,10 @@ is the detector. Start on the nadir shelter cams (CH05/CH06) where rats are larg
    ```bat
    python label_frames.py
    ```
-   drag = box · `d` delete last · `c` clear · `n`/SPACE next · `p` prev · `q` save+quit.
-   Resumable; frames with no rats save an empty label (a valid negative). ~50–150 boxes
-   is enough for a feasibility read.
+   drag = box · `d` delete last · `c` clear · `s` skip (unusable) · `g` huddle (defer pile) ·
+   `n`/SPACE next · `p` prev · `q` save+quit. Resumable; frames with no rats save an empty label
+   (a valid negative). **Full rules — when to box vs skip/huddle vs empty — are in
+   [`LABELING_PROTOCOL.md`](LABELING_PROTOCOL.md).** ~50–150 boxes is enough for a feasibility read.
 3. **Train** a light fine-tune and read the val mAP:
    ```bat
    python train_detector.py            :: yolo11s, 80 epochs, imgsz 1280, 80/20 split

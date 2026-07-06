@@ -117,6 +117,20 @@ def main() -> None:
     rain_did_all.to_csv(out / "rain_did.csv", index=False)
     w.plot_rain_did(did_variants, save_path=fig / "N5_rain_did.png")
 
+    # --- DiD uncertainty (bootstrap 95% CI across rats) + confound covariates ---
+    did_conf = w.did_confidence(rain_did_all)
+    did_conf.to_csv(out / "rain_did_confidence.csv", index=False)
+    # Known confounds per night (see change_log/2026-06-30-nightly-progression.md):
+    #   wet_ground: 6/30 wet all night; tunnel_present: tunnel in the paddock 6/28 only;
+    #   sova_removed: Sova/12409 excluded from the whole paired core.
+    covariates = pd.DataFrame([{
+        "night": night,
+        "wet_ground": (night == rain_night),
+        "tunnel_present": (night == nights[0]),
+        "sova_removed": True,
+    } for night in nights])
+    covariates.to_csv(out / "night_covariates.csv", index=False)
+
     # --- weather ---
     weather = w.load_weather_multi(WEATHER_FILES)
     wsum = []
@@ -151,9 +165,17 @@ def main() -> None:
     m = nr.groupby("night")["active_distance_m_per_valid_hour"].mean()
     n1, n2 = nights[0], nights[1]
     drop = 100 * (1 - m[n2] / m[n1]) if m[n1] else float("nan")
-    did_str = ", ".join(
-        f"{k}={float(v['did'].mean()):+.1f}" if v is not None and not v.empty else f"{k}=NA"
-        for k, v in did_variants.items())
+    ci_by_buf = {int(r.buffer_min): (r.mean_did, r.ci_lo, r.ci_hi)
+                 for r in did_conf.itertuples()} if not did_conf.empty else {}
+    def _did_cell(k, v):
+        if v is None or v.empty:
+            return f"{k}=NA"
+        buf = int(v["buffer_min"].iloc[0])
+        if buf in ci_by_buf:
+            m, lo, hi = ci_by_buf[buf]
+            return f"{k}={m:+.1f} [95% CI {lo:+.1f},{hi:+.1f}]"
+        return f"{k}={float(v['did'].mean()):+.1f}"
+    did_str = ", ".join(_did_cell(k, v) for k, v in did_variants.items())
     verdict = (f"CANDIDATE habituation (dry nights) {n1}->{n2}: "
                f"{m[n1]:.0f}->{m[n2]:.0f} m/valid-hr (down {drop:.0f}%). "
                f"6/30 is WET ALL NIGHT (17:20 rain) -> confounded with habituation; "
@@ -168,6 +190,9 @@ def main() -> None:
         "rain_split": RAIN_SPLIT, "rain_band_observed": RAIN_BAND_HHMM, "buffers_min": list(BUFFERS),
         "rain_facts": "6/30 afternoon 17:20-17:55 (station); in-window ~22:30-22:50 (observed); "
                       "6/28 dry-confirmed; 6/29 evening weather unknown",
+        "did_ci": "bootstrap 95% CI of mean DiD across n=5 rats -> rain_did_confidence.csv",
+        "confounds": "night_covariates.csv: wet_ground(6/30), tunnel_present(6/28 only), "
+                     "sova_removed(all nights)",
         "note": "exploratory; wet-ground on 6/30 confounded with habituation; WISER frame unverified",
     })
     print("\n  " + verdict)

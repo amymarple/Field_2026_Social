@@ -1,14 +1,17 @@
 """
-Verify the GPU / CUDA / PyTorch stack on the field PC (RTX 5060 Ti, Blackwell).
+Verify the GPU / CUDA / PyTorch stack.
 
 Pass criteria (Stage 0 #1):
   - torch imports and reports a CUDA build,
-  - torch.cuda.is_available() is True and the device is the RTX 5060 Ti,
-  - a tiny tensor op runs on the GPU.
+  - torch.cuda.is_available() is True,
+  - a tiny tensor op runs on whatever CUDA device is present.
+
+Works on either machine: the field PC (RTX 5060 Ti, Blackwell sm_120, needs a cu128+
+build) or the analysis PC (RTX 3060, Ampere sm_86, a standard cu12x build). The device
+name/capability is printed, not asserted, so any CUDA GPU passes. torch.version.cuda is
+printed so a wrong build for the installed GPU is obvious.
 
 A YOLO load + 1-frame inference is attempted as a BONUS (not required to pass).
-Blackwell (sm_120) needs a cu128+ PyTorch build; this script prints torch.version
-.cuda so a wrong (e.g. cu121) build is obvious.
 
 Exit code 0 = pass, 1 = fail.
 """
@@ -30,8 +33,9 @@ def main() -> int:
     avail = torch.cuda.is_available()
     print(f"cuda available   : {avail}")
     if not avail:
-        print("FAIL: CUDA not available. Was torch installed from the cu128 index?")
-        print("  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128")
+        print("FAIL: CUDA not available. Was torch installed from a CUDA index matching this GPU?")
+        print("  Blackwell RTX 5060 Ti (sm_120): --index-url https://download.pytorch.org/whl/cu128")
+        print("  Ampere    RTX 3060   (sm_86) : --index-url https://download.pytorch.org/whl/cu124")
         return 1
 
     name = torch.cuda.get_device_name(0)

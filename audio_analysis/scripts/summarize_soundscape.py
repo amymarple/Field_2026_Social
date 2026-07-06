@@ -57,12 +57,14 @@ def main():
         print("  no usable windows (all silent / pre-mic / flagged).")
 
     if args.plots and len(ok):
-        from src.plotting import plot_level_over_time, plot_index_timeseries
+        from src.plotting import (plot_level_over_time, plot_index_timeseries,
+                                  plot_bird_vs_ambient)
         pdir = out_dir / "plots"
         pdir.mkdir(parents=True, exist_ok=True)
         p1 = plot_level_over_time(csv_path, pdir / f"{args.channel}_{args.date}_level.png")
         p2 = plot_index_timeseries(csv_path, pdir / f"{args.channel}_{args.date}_indices.png")
-        print(f"  plots: {p1.name}, {p2.name}")
+        p3 = plot_bird_vs_ambient(csv_path, pdir / f"{args.channel}_{args.date}_bird_vs_ambient.png")
+        print(f"  plots: {p1.name}, {p2.name}, {p3.name}")
 
 
 if __name__ == "__main__":

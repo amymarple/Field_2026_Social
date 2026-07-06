@@ -35,9 +35,9 @@ import pandas as pd
 # Reuse the existing library. Support both "import as package" (src.x) and
 # "src on sys.path" execution styles.
 try:                                                  # package-style import
-    from . import wiser_io, time_utils, metrics, plotting
+    from . import wiser_io, time_utils, metrics, plotting, field_transform
 except ImportError:                                   # flat import (src on path)
-    import wiser_io, time_utils, metrics, plotting    # type: ignore
+    import wiser_io, time_utils, metrics, plotting, field_transform  # type: ignore
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +46,16 @@ except ImportError:                                   # flat import (src on path
 
 IN_TO_CM = 2.54
 CM_TO_IN = 1.0 / IN_TO_CM
+
+# Physical paddock in the CV field frame (origin at pole A0), in cm. Mirrors
+# preprocessing/computer_vision/field_coords.py FIELD_X_CM / FIELD_Y_CM. Kept as
+# plain constants so this core module has no dependency on the CV package.
+FIELD_X_CM = 1219.2   # 40 ft length (x)
+FIELD_Y_CM = 609.6    # 20 ft width (y)
+
+# Default location of the georeference transform written by scripts/georeference_wiser.py.
+DEFAULT_TRANSFORM_PATH = Path(__file__).resolve().parent.parent / "configs" / \
+    "wiser_to_field_transform.json"
 
 # Social-distance thresholds requested in metres, expressed in inches.
 PROXIMITY_THRESHOLDS_IN = (0.5 / IN_TO_CM * 100,   # 0.5 m -> 19.69 in
@@ -393,6 +403,79 @@ def load_rois(path: Path | str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Georeferencing: WISER-inch frame <-> physical field-cm frame
+# ---------------------------------------------------------------------------
+# These are the *consumers* of the transform fit by scripts/georeference_wiser.py.
+# They are strictly guarded: with no confirmed transform on disk, every helper is
+# a no-op (returns None / leaves data unchanged), so existing analyses behave
+# exactly as before until a survey has been run and vetted (confirmed=true).
+
+def load_field_transform(path: Path | str | None = None, *,
+                         allow_unconfirmed: bool = False) -> dict | None:
+    """
+    Load the WISER-inch -> field-cm transform, or ``None``.
+
+    Returns ``None`` when the config is absent, or when it exists but is not
+    ``confirmed`` (unless ``allow_unconfirmed=True``). A ``None`` return is the
+    signal to callers to fall back to WISER-native-inch behaviour. Reuses
+    :func:`field_transform.load_transform`.
+    """
+    cfg = field_transform.load_transform(path or DEFAULT_TRANSFORM_PATH)
+    if cfg is None:
+        return None
+    if not cfg.get("confirmed", False) and not allow_unconfirmed:
+        return None
+    return cfg
+
+
+def apply_field_transform(df: pd.DataFrame, transform: dict | None) -> pd.DataFrame:
+    """
+    Add ``x_field_cm, y_field_cm`` (physical paddock cm, origin A0) from WISER
+    inches, for cross-modal comparison with the CV pipeline. If ``transform`` is
+    ``None`` the frame is returned unchanged (no columns added). Inch columns and
+    all inch-based thresholds are untouched — the cm columns are purely additive.
+    """
+    if transform is None:
+        return df
+    df = df.copy()
+    cm = field_transform.apply_transform(
+        transform["matrix"], df[["x", "y"]].to_numpy())
+    df["x_field_cm"] = cm[:, 0]
+    df["y_field_cm"] = cm[:, 1]
+    return df
+
+
+def verified_boundary_in_wiser(transform: dict | None) -> dict | None:
+    """
+    The physical paddock rectangle (A0 .. C4) expressed **in WISER inches**, as a
+    ``{"rect": [xmin,xmax,ymin,ymax], "confirmed": True, ...}`` boundary suitable
+    for :func:`add_validity_flags`, :func:`distance_to_edge`, and
+    :func:`thigmotaxis_index` — replacing the provisional ``observed_extent``
+    bounding box with a *surveyed* boundary once the frame is georeferenced.
+
+    Returns ``None`` if ``transform`` is ``None`` (callers then keep today's
+    provisional boundary). The four field-cm corners are inverse-mapped to inches
+    and reduced to an axis-aligned bounding box; because the WISER frame may be
+    rotated, this box is a conservative (outer) bound of the true paddock.
+    """
+    if transform is None:
+        return None
+    inv = field_transform.invert_transform(transform["matrix"])
+    corners_cm = [[0.0, 0.0], [FIELD_X_CM, 0.0],
+                  [FIELD_X_CM, FIELD_Y_CM], [0.0, FIELD_Y_CM]]
+    corners_in = field_transform.apply_transform(inv, corners_cm)
+    xs, ys = corners_in[:, 0], corners_in[:, 1]
+    return {
+        "rect": [float(xs.min()), float(xs.max()),
+                 float(ys.min()), float(ys.max())],
+        "confirmed": True,
+        "frame": "WISER inches, derived from georeference transform",
+        "corners_in": corners_in.tolist(),
+        "note": "axis-aligned bound of the (possibly rotated) surveyed paddock",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Social: common-time-grid resample, pairwise distances, proximity
 # ---------------------------------------------------------------------------
 
@@ -565,6 +648,30 @@ def _point_in_rect(x: np.ndarray, y: np.ndarray, roi: dict) -> np.ndarray:
     ly = s * dx + c * dy
     return (np.abs(lx) <= roi.get("width_in", 10.0) / 2) & \
            (np.abs(ly) <= roi.get("height_in", 10.0) / 2)
+
+
+def _rect_membership(x: np.ndarray, y: np.ndarray, roi: dict,
+                     buffer_in: float) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Two boolean masks for a (possibly rotated) rectangular ROI: ``in_core`` (inside
+    the ROI, identical to :func:`_point_in_rect`) and ``in_buffer`` (inside the ROI
+    grown by ``buffer_in`` on every side; ``in_buffer`` ⊇ ``in_core``).
+
+    The buffer absorbs WISER position jitter (~7 in median, p95 ~15 in) around the
+    small ~36 × 27 in shelter footprint so a jittered fix just outside the rectangle
+    is not mistaken for the animal having left.
+    """
+    th = np.radians(roi.get("orientation_deg", 0.0))
+    dx = np.asarray(x, float) - roi["x"]
+    dy = np.asarray(y, float) - roi["y"]
+    c, s = np.cos(-th), np.sin(-th)
+    lx = np.abs(c * dx - s * dy)
+    ly = np.abs(s * dx + c * dy)
+    hw = roi.get("width_in", 10.0) / 2
+    hh = roi.get("height_in", 10.0) / 2
+    in_core = (lx <= hw) & (ly <= hh)
+    in_buffer = (lx <= hw + buffer_in) & (ly <= hh + buffer_in)
+    return in_core, in_buffer
 
 
 def assign_roi(df: pd.DataFrame, roi_cfg: dict,
@@ -991,6 +1098,34 @@ def rain_did(split_rates: pd.DataFrame, rain_night: str,
                              "did": float(dr.iloc[0] - dc.iloc[0]),
                              "buffer_min": int(d["buffer_min"].iloc[0])})
     return pd.DataFrame(rows)
+
+
+def did_confidence(did_table: pd.DataFrame, *, n_boot: int = 2000,
+                   seed: int = 0) -> pd.DataFrame:
+    """
+    Bootstrap 95% CI of the mean rain difference-in-differences **across rats**,
+    per buffer. Aggregates each rat to its mean DiD (over control nights) first,
+    then resamples rats with replacement. With n=5 rats the CI is deliberately
+    wide — that honesty is the point (the promotion blocker is data + confounds,
+    not a point estimate). Returns one row per ``buffer_min``:
+    ``n_rats, mean_did, ci_lo, ci_hi``.
+    """
+    if did_table is None or did_table.empty:
+        return pd.DataFrame()
+    rng = np.random.default_rng(seed)
+    out = []
+    for buf, g in did_table.groupby("buffer_min"):
+        per_rat = g.groupby("shortid")["did"].mean().to_numpy()
+        n = len(per_rat)
+        if n == 0:
+            continue
+        boots = np.array([rng.choice(per_rat, n, replace=True).mean()
+                          for _ in range(n_boot)])
+        out.append({"buffer_min": int(buf), "n_rats": n,
+                    "mean_did": float(per_rat.mean()),
+                    "ci_lo": float(np.percentile(boots, 2.5)),
+                    "ci_hi": float(np.percentile(boots, 97.5))})
+    return pd.DataFrame(out)
 
 
 def cumulative_night_distance(win: pd.DataFrame, *, moving_thr_inps: float,
@@ -3018,6 +3153,557 @@ def plot_nightly_lines(df, cols, *, ylabel, title, save_path=None):
     ax.legend(fontsize=8)
     ax.grid(True, linestyle="--", alpha=0.4)
     plotting._save_or_show(fig, Path(save_path) if save_path else None)
+
+
+# ---------------------------------------------------------------------------
+# Direction 3 — daytime sleep / rest-site location and its change
+# ---------------------------------------------------------------------------
+# Rats are nocturnal (active ~21:00->~05:00); the daytime rest period is
+# 05:00-21:00 local. "Sleep" here is a LOW-SPEED proxy (smoothed speed below the
+# stationary p99 noise floor), NOT validated against ephys — the CV shelter cams
+# (CH05/CH06) are the intended cross-check. WISER's ~7 in jitter means only
+# well-separated sites (>> the floor; the two shelters are ~5 ft apart) are
+# distinguishable — sub-shelter site distinctions are not.
+
+def rest_mask(df: pd.DataFrame, *, moving_thr_inps: float) -> pd.DataFrame:
+    """
+    Add a boolean ``resting`` column: smoothed locomotion speed below the
+    stationary speed-noise floor ``moving_thr_inps`` (from :func:`speed_noise_floor`).
+    Requires ``speed_inps_smooth`` (run :func:`add_speed` first). NaN smoothed
+    speed (a tracking artifact set by ``add_speed``) is treated as **not** resting.
+    """
+    df = df.copy()
+    sp = df.get("speed_inps_smooth")
+    if sp is None:
+        raise KeyError("Run add_speed() before rest_mask().")
+    df["resting"] = sp.lt(moving_thr_inps).fillna(False)
+    return df
+
+
+def _cosine(a: np.ndarray, b: np.ndarray) -> float:
+    a = np.asarray(a, float).ravel(); b = np.asarray(b, float).ravel()
+    na, nb = np.linalg.norm(a), np.linalg.norm(b)
+    return float(a @ b / (na * nb)) if na and nb else np.nan
+
+
+def _peak_cell_center(g: pd.DataFrame, extent, bin_in: float) -> tuple[float, float, np.ndarray]:
+    """Dominant (box-blurred) occupancy cell centre for one group + its flat map."""
+    H, xe, ye = occupancy_hist(g, extent, bin_in)
+    Hs = _box_blur(H)
+    ix, iy = np.unravel_index(int(np.argmax(Hs)), Hs.shape)
+    xc = 0.5 * (xe[ix] + xe[ix + 1])
+    yc = 0.5 * (ye[iy] + ye[iy + 1])
+    return float(xc), float(yc), Hs.ravel()
+
+
+def daytime_primary_site(win: pd.DataFrame, *, extent, roi_cfg: dict | None = None,
+                         bin_in: float = 4.0, site_radius_in: float = 24.0,
+                         min_fixes: int = 50, transform: dict | None = None
+                         ) -> tuple[pd.DataFrame, dict]:
+    """
+    Per **(night, shortid)** primary rest site over resting fixes.
+
+    ``win`` must have ``resting`` (from :func:`rest_mask`) and ``night`` (local
+    date, from :func:`select_route_window`). For each animal-day the dominant
+    occupancy cell of its resting fixes is the site; ``site_concentration`` is the
+    fraction of that day's resting fixes within ``site_radius_in`` (default 24 in,
+    well above the ~7 in jitter floor) of the site. Adds ``site_x_field_cm/…`` when
+    a confirmed ``transform`` is given, and ``site_roi`` (via :func:`assign_roi`)
+    when ``roi_cfg`` is given. All occupancy maps use the shared ``extent`` so the
+    per-tag day-to-day cosine in :func:`rest_site_stability` is comparable.
+
+    Returns ``(sites_df, occ_hists)`` where ``occ_hists`` maps ``(night, shortid)``
+    -> the flattened blurred occupancy map.
+    """
+    rest = win[win["resting"]] if "resting" in win.columns else win
+    rows: list[dict] = []
+    hists: dict = {}
+    for (night, sid), g in rest.groupby(["night", "shortid"]):
+        g = g.dropna(subset=["x", "y"])
+        row = {"night": night, "shortid": sid, "n_rest_fixes": int(len(g))}
+        if len(g) < min_fixes:
+            row.update({"site_x": np.nan, "site_y": np.nan,
+                        "site_concentration": np.nan, "low_coverage": True})
+            rows.append(row)
+            continue
+        xc, yc, hflat = _peak_cell_center(g, extent, bin_in)
+        conc = float((np.hypot(g["x"] - xc, g["y"] - yc) <= site_radius_in).mean())
+        row.update({"site_x": xc, "site_y": yc, "site_concentration": conc,
+                    "low_coverage": False})
+        if transform is not None:
+            cm = field_transform.apply_transform(transform["matrix"], [[xc, yc]])[0]
+            row["site_x_field_cm"], row["site_y_field_cm"] = float(cm[0]), float(cm[1])
+        if roi_cfg is not None:
+            rep_dt = g["datetime"].iloc[len(g) // 2] if "datetime" in g.columns else None
+            one = pd.DataFrame({"x": [xc], "y": [yc]})
+            if rep_dt is not None:
+                one["datetime"] = [rep_dt]
+            row["site_roi"] = assign_roi(one, roi_cfg)["roi"].iloc[0]
+        rows.append(row)
+        hists[(night, sid)] = hflat
+    return pd.DataFrame(rows), hists
+
+
+def rest_site_stability(sites_df: pd.DataFrame, *, occ_hists: dict | None = None
+                        ) -> pd.DataFrame:
+    """
+    **Across-day** rest-site change, per animal. For each consecutive pair of
+    animal-days with a defined site: ``site_shift_in`` (distance between the two
+    primary sites) and, when ``occ_hists`` is supplied, ``occ_cosine`` (similarity
+    of the two days' resting occupancy maps — high = same spatial use). A shift ≫
+    the ~7 in jitter floor is a genuine sleep-site relocation.
+    """
+    out: list[dict] = []
+    have = sites_df.dropna(subset=["site_x", "site_y"])
+    for sid, g in have.sort_values("night").groupby("shortid"):
+        g = g.reset_index(drop=True)
+        for i in range(1, len(g)):
+            d0, d1 = g["night"][i - 1], g["night"][i]
+            shift = float(np.hypot(g["site_x"][i] - g["site_x"][i - 1],
+                                   g["site_y"][i] - g["site_y"][i - 1]))
+            row = {"shortid": sid, "night_prev": d0, "night": d1,
+                   "site_shift_in": shift}
+            if occ_hists is not None and (d0, sid) in occ_hists and (d1, sid) in occ_hists:
+                row["occ_cosine"] = _cosine(occ_hists[(d0, sid)], occ_hists[(d1, sid)])
+            out.append(row)
+    return pd.DataFrame(out)
+
+
+def intraday_site_drift(win: pd.DataFrame, *, extent,
+                        blocks=((5, 11), (11, 15), (15, 21)),
+                        bin_in: float = 4.0, min_fixes: int = 30,
+                        transform: dict | None = None) -> pd.DataFrame:
+    """
+    **Within-day** rest-site drift. Splits the rest period into ``blocks`` (local
+    clock-hour ranges; default morning / midday / afternoon) and, per
+    (night, shortid, block), finds the primary resting site and its shift from the
+    previous block that day. ``win`` needs ``resting`` and ``clock_hour`` (both from
+    the rest_mask + select_route_window pipeline). A large ``shift_from_prev_in``
+    (≫ jitter) means the animal moved its rest spot during the day.
+    """
+    rest = win[win["resting"]] if "resting" in win.columns else win
+    out: list[dict] = []
+    for (night, sid), g in rest.groupby(["night", "shortid"]):
+        prev = None
+        for b0, b1 in blocks:
+            sub = g[(g["clock_hour"] >= b0) & (g["clock_hour"] < b1)].dropna(subset=["x", "y"])
+            label = f"{b0:02d}-{b1:02d}"
+            row = {"night": night, "shortid": sid, "block": label,
+                   "n_rest_fixes": int(len(sub))}
+            if len(sub) < min_fixes:
+                # low coverage this block: record NaN site but KEEP prev, so the
+                # next populated block still measures its shift from the last known
+                # site (a morning->afternoon move survives an empty midday block).
+                row.update({"site_x": np.nan, "site_y": np.nan,
+                            "shift_from_prev_in": np.nan})
+                out.append(row)
+                continue
+            xc, yc, _ = _peak_cell_center(sub, extent, bin_in)
+            row["site_x"], row["site_y"] = xc, yc
+            row["shift_from_prev_in"] = (float(np.hypot(xc - prev[0], yc - prev[1]))
+                                         if prev is not None else np.nan)
+            if transform is not None:
+                cm = field_transform.apply_transform(transform["matrix"], [[xc, yc]])[0]
+                row["site_x_field_cm"], row["site_y_field_cm"] = float(cm[0]), float(cm[1])
+            prev = (xc, yc)
+            out.append(row)
+    return pd.DataFrame(out)
+
+
+# ---------------------------------------------------------------------------
+# Direction 3 cross-modal: WISER shelter-ROI presence <-> CV shelter occupancy
+# ---------------------------------------------------------------------------
+# WISER (UWB, whole paddock, Unix-ms UTC) vs the CV shelter cams (CH05 = left
+# shelter, CH06 = right; viewed through IR glass; timestamped in LOCAL NVR
+# wallclock from the recording filename). The two device clocks are UNVERIFIED
+# against each other: we shift CV to UTC by +|LOCAL_TZ_OFFSET_HOURS| h and then
+# SCAN a small residual lag, reporting the best-fitting offset (never asserting a
+# verified sync). CV counts undercount (huddles + the wall-edge blind zone), so
+# occupancy (boolean) is the primary metric and head-count is a lower bound.
+
+CV_OCCUPIED_STATES = ("occupied_low_motion", "occupied_high_motion")
+
+
+def _coerce_bool(s: pd.Series, default: bool) -> pd.Series:
+    """Object/NaN-tolerant boolean coercion (NaN -> ``default``); avoids the pandas
+    fillna-downcast FutureWarning on mixed-vintage CV columns."""
+    return s.map(lambda v: default if pd.isna(v) else bool(v)).astype(bool)
+
+
+def load_cv_shelter_sleep(paths) -> pd.DataFrame:
+    """
+    Load + concat CV ``shelter_sleep.py`` output CSVs and add a UTC timestamp.
+
+    **Schema-tolerant across CV vintages.** The current schema has underscored
+    states + `view_quality_inside` + `usable_*` + `n_inside_estimated`; an older
+    one (e.g. 2026-06-29) is just ``channel,file,t,n_rats,roi_motion,state`` with
+    **hyphenated** states and no glass QC. This normalizes both:
+    - ``state`` hyphens -> underscores; ``occupied`` = state in
+      :data:`CV_OCCUPIED_STATES`;
+    - ``n_inside_estimated`` falls back to the old ``n_rats`` when absent;
+    - missing ``usable_for_headline_summary`` -> False (no glass QC = can't claim
+      clear), missing ``usable_for_coarse_activity`` -> True (the occupancy call
+      still exists), missing ``view_quality_inside`` -> "unknown".
+
+    CV ``t`` is naive **local** NVR wallclock; WISER is naive **UTC**, so
+    ``t_utc = t + |LOCAL_TZ_OFFSET_HOURS| h`` (EDT = UTC-4). Empty frame if no file.
+    """
+    frames = []
+    for p in paths:
+        p = Path(p)
+        if not p.exists():
+            warnings.warn(f"[cv-crossval] missing CV file {p}")
+            continue
+        frames.append(pd.read_csv(p))
+    if not frames:
+        return pd.DataFrame()
+    cv = pd.concat(frames, ignore_index=True)
+    cv["t"] = pd.to_datetime(cv["t"])                              # naive local
+    cv["t_utc"] = cv["t"] + pd.Timedelta(hours=abs(LOCAL_TZ_OFFSET_HOURS))
+    cv["state"] = cv["state"].astype(str).str.replace("-", "_", regex=False)
+    cv["occupied"] = cv["state"].isin(CV_OCCUPIED_STATES)
+    if "n_inside_estimated" not in cv.columns:
+        cv["n_inside_estimated"] = np.nan
+    if "n_rats" in cv.columns:                                     # older column name
+        cv["n_inside_estimated"] = cv["n_inside_estimated"].fillna(cv["n_rats"])
+    if "usable_for_headline_summary" not in cv.columns:
+        cv["usable_for_headline_summary"] = False
+    cv["usable_for_headline_summary"] = _coerce_bool(cv["usable_for_headline_summary"], False)
+    if "usable_for_coarse_activity" not in cv.columns:
+        cv["usable_for_coarse_activity"] = True
+    cv["usable_for_coarse_activity"] = _coerce_bool(cv["usable_for_coarse_activity"], True)
+    if "view_quality_inside" not in cv.columns:
+        cv["view_quality_inside"] = "unknown"
+    cv["view_quality_inside"] = cv["view_quality_inside"].fillna("unknown")
+    return cv
+
+
+def wiser_shelter_presence(win: pd.DataFrame, roi_cfg: dict, shelter_names,
+                           *, bin_s: int = 60, resting_only: bool = False
+                           ) -> pd.DataFrame:
+    """
+    **RAW point-wise ROI occupancy — a DIAGNOSTIC, not the primary state.**
+
+    Per UTC time-bin × shelter, the number of **distinct rats** with a fix inside
+    that shelter's (possibly rotated) rectangle, plus ``occupied`` (n_rats > 0).
+    Because WISER jitters (~7 in median, p95 ~15 in) around the small ~36 × 27 in
+    shelter, a single jittered fix landing outside the rectangle flips a bin to
+    ``occupied=False`` even when the animal never left — i.e. this over-reports
+    exits during a rest period. Use :func:`wiser_shelter_state` /
+    :func:`shelter_occupancy_bins` for the biological occupancy signal; keep this
+    only to quantify how much the point-wise definition over-splits.
+
+    Every bin in which WISER observed **any** valid fix gets a row per shelter
+    (n_rats = 0 when none are inside) — so ``occupied=False`` bins are explicit
+    observations, not missing data. Requires ``datetime`` (naive UTC) + ``x,y``
+    (and ``resting`` if ``resting_only``). Reuses :func:`_point_in_rect`.
+    Returns long: ``bin_utc, shelter, n_rats, occupied``.
+    """
+    rois = {r["name"]: r for r in (roi_cfg.get("rois", []) if roi_cfg else [])}
+    d = win.dropna(subset=["x", "y", "datetime"]).copy()
+    if resting_only and "resting" in d.columns:
+        d = d[d["resting"]]
+    binns = int(bin_s) * 1_000_000_000
+    d["bin_utc"] = (d["datetime"].astype("int64") // binns) * binns
+    all_bins = np.sort(d["bin_utc"].unique())
+    out = []
+    for sname in shelter_names:
+        roi = rois.get(sname)
+        if roi is None:
+            warnings.warn(f"[cv-crossval] shelter ROI '{sname}' not in roi_cfg")
+            continue
+        inside = _point_in_rect(d["x"].to_numpy(), d["y"].to_numpy(), roi)
+        counts = d[inside].groupby("bin_utc")["shortid"].nunique()
+        g = pd.DataFrame({"bin_utc": all_bins})
+        g["n_rats"] = g["bin_utc"].map(counts).fillna(0).astype(int)
+        g["shelter"] = sname
+        out.append(g)
+    if not out:
+        return pd.DataFrame(columns=["bin_utc", "shelter", "n_rats", "occupied"])
+    res = pd.concat(out, ignore_index=True)
+    res["occupied"] = res["n_rats"] > 0
+    return res
+
+
+def _hysteresis_state(near: np.ndarray, n_enter: int, n_exit: int) -> np.ndarray:
+    """
+    Debounced boolean state from a per-bin evidence array ``near`` whose values are
+    ``1.0`` (near/inside), ``0.0`` (far/outside), or ``NaN`` (uncertain).
+
+    Enter the state after ``n_enter`` **consecutive** near bins; exit only after
+    ``n_exit`` consecutive far bins. Uncertain bins **hold** the current state and
+    reset neither run counter — so boundary jitter (which reads uncertain, never
+    far) can't flicker the state off. Returns a boolean array the length of ``near``.
+    """
+    state = False
+    run_near = run_far = 0
+    out = np.empty(near.shape[0], dtype=bool)
+    for i, v in enumerate(near):
+        if v == 1.0:
+            run_near += 1
+            run_far = 0
+        elif v == 0.0:
+            run_far += 1
+            run_near = 0
+        # NaN (uncertain): hold both counters, hold state.
+        if not state and run_near >= n_enter:
+            state = True
+        elif state and run_far >= n_exit:
+            state = False
+        out[i] = state
+    return out
+
+
+def wiser_shelter_state(win: pd.DataFrame, roi_cfg: dict, shelter_names,
+                        *, bin_s: int = 60, buffer_in: float = 18.0,
+                        enter_s: float = 120, exit_s: float = 120,
+                        near_frac: float = 0.5, far_frac: float = 0.2,
+                        hc_min_s: float = 1200, hc_max_spread_in: float = 24.0
+                        ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Smoothed, hysteretic, buffer-tolerant **shelter-occupancy state** per rat — the
+    biological occupancy signal that replaces raw point-wise ROI inclusion
+    (:func:`wiser_shelter_presence`). WISER jitters at the point level, but a
+    *sustained cluster* of positions near a shelter is high-confidence occupancy.
+
+    Per **(night, shortid, shelter)** — ``win`` must carry ``night`` (from
+    :func:`select_route_window`) so episodes never cross the overnight gap:
+
+    1. Bin the rat's fixes at ``bin_s`` s; per bin take ``frac_core`` /
+       ``frac_near`` = fraction of that bin's fixes inside the shelter core /
+       inside the core∪buffer (buffer = ROI grown by ``buffer_in`` in;
+       :func:`_rect_membership`). Reindex onto the contiguous within-night grid so
+       dropout bins are explicit NaN evidence.
+    2. Per-bin evidence: **near** (1.0) if ``frac_near >= near_frac``; **far** (0.0)
+       if ``frac_near <= far_frac``; else **uncertain** (NaN) — near-boundary /
+       buffer-straddling bins are uncertain, never forced outside.
+    3. Hysteresis (:func:`_hysteresis_state`): enter after ``ceil(enter_s/bin_s)``
+       consecutive near bins, exit after ``ceil(exit_s/bin_s)`` consecutive far
+       bins, uncertain holds — yielding a per-bin boolean ``state``.
+    4. **Episodes** = contiguous ``state`` runs. Per episode: ``duration_s``,
+       ``n_fix``, centroid (median x,y of the episode's fixes), ``spread_in``
+       (median distance of those fixes to the centroid), ``frac_core``,
+       ``centroid_in_buffer``, and ``high_confidence`` = ``duration_s >= hc_min_s``
+       **and** ``spread_in <= hc_max_spread_in`` **and** ``centroid_in_buffer``.
+       ("No continuous trajectory away" is intrinsic: a sustained departure would
+       have tripped the hysteretic exit and ended the episode.)
+
+    Returns ``(grid_df, episodes_df)``:
+      - ``grid_df``: ``night, shortid, shelter, bin_utc, frac_core, frac_near,
+        state, hc`` (``hc`` = bin lies in a high-confidence episode).
+      - ``episodes_df``: one row per episode with the metrics above.
+    """
+    rois = {r["name"]: r for r in (roi_cfg.get("rois", []) if roi_cfg else [])}
+    d = win.dropna(subset=["x", "y", "datetime"]).copy()
+    if "night" not in d.columns:
+        raise KeyError("wiser_shelter_state needs a 'night' column "
+                       "(run select_route_window first).")
+    binns = int(bin_s) * 1_000_000_000
+    d["bin_utc"] = (d["datetime"].astype("int64") // binns) * binns
+    n_enter = max(1, int(np.ceil(enter_s / bin_s)))
+    n_exit = max(1, int(np.ceil(exit_s / bin_s)))
+
+    grid_rows: list[pd.DataFrame] = []
+    epi_rows: list[dict] = []
+    for sname in shelter_names:
+        roi = rois.get(sname)
+        if roi is None:
+            warnings.warn(f"[shelter-state] shelter ROI '{sname}' not in roi_cfg")
+            continue
+        in_core, in_buf = _rect_membership(d["x"].to_numpy(), d["y"].to_numpy(),
+                                           roi, buffer_in)
+        d_s = d.assign(_core=in_core, _buf=in_buf)
+        for (night, sid), g in d_s.groupby(["night", "shortid"]):
+            agg = (g.groupby("bin_utc")
+                   .agg(frac_core=("_core", "mean"), frac_near=("_buf", "mean"))
+                   .sort_index())
+            full = np.arange(int(agg.index.min()),
+                             int(agg.index.max()) + binns, binns)
+            agg = agg.reindex(full)
+            fn = agg["frac_near"].to_numpy()
+            near = np.where(np.isnan(fn), np.nan,
+                            np.where(fn >= near_frac, 1.0,
+                                     np.where(fn <= far_frac, 0.0, np.nan)))
+            state = _hysteresis_state(near, n_enter, n_exit)
+            hc = np.zeros(state.shape[0], dtype=bool)
+
+            # segment contiguous state runs -> episodes ([a, b) grid indices)
+            edges = np.flatnonzero(np.diff(
+                np.concatenate(([0], state.astype(np.int8), [0]))))
+            for a, b in zip(edges[0::2], edges[1::2]):        # [a, b) grid indices
+                start, end = int(full[a]), int(full[b - 1])
+                # the episode's actual fixes (present bins only)
+                fx = g[(g["bin_utc"] >= start) & (g["bin_utc"] <= end)]
+                fx = fx.dropna(subset=["x", "y"])
+                cx = float(fx["x"].median()); cy = float(fx["y"].median())
+                spread = float(np.median(np.hypot(fx["x"] - cx, fx["y"] - cy))) \
+                    if len(fx) else np.nan
+                cin_core, cin_buf = _rect_membership(np.array([cx]), np.array([cy]),
+                                                     roi, buffer_in)
+                dur_s = (b - a) * bin_s
+                high = bool(dur_s >= hc_min_s and (spread == spread)
+                            and spread <= hc_max_spread_in and bool(cin_buf[0]))
+                if high:
+                    hc[a:b] = True
+                epi_rows.append({
+                    "night": night, "shortid": sid, "shelter": sname,
+                    "start_utc": start, "end_utc": end + binns,
+                    "duration_s": int(dur_s), "n_bins": int(b - a),
+                    "n_fix": int(len(fx)),
+                    "centroid_x": cx, "centroid_y": cy, "spread_in": spread,
+                    "frac_core": float(fx["_core"].mean()) if len(fx) else np.nan,
+                    "centroid_in_core": bool(cin_core[0]),
+                    "centroid_in_buffer": bool(cin_buf[0]),
+                    "high_confidence": high,
+                })
+            grid_rows.append(pd.DataFrame({
+                "night": night, "shortid": sid, "shelter": sname,
+                "bin_utc": full, "frac_core": agg["frac_core"].to_numpy(),
+                "frac_near": fn, "state": state, "hc": hc}))
+
+    grid_df = (pd.concat(grid_rows, ignore_index=True) if grid_rows
+               else pd.DataFrame(columns=["night", "shortid", "shelter", "bin_utc",
+                                          "frac_core", "frac_near", "state", "hc"]))
+    episodes_df = (pd.DataFrame(epi_rows) if epi_rows
+                   else pd.DataFrame(columns=["night", "shortid", "shelter",
+                                              "start_utc", "end_utc", "duration_s",
+                                              "n_bins", "n_fix", "centroid_x",
+                                              "centroid_y", "spread_in", "frac_core",
+                                              "centroid_in_core", "centroid_in_buffer",
+                                              "high_confidence"]))
+    return grid_df, episodes_df
+
+
+def shelter_occupancy_bins(grid_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Collapse the per-rat :func:`wiser_shelter_state` grid to per ``(shelter,
+    bin_utc)`` occupancy: ``n_state`` (rats in the in-shelter state), ``occupied``
+    (``n_state > 0``), ``n_hc`` (rats in a high-confidence episode), ``hc_occupied``
+    (``n_hc > 0``). ``occupied`` is the smoothed reference used for CV precision;
+    ``hc_occupied`` is the high-confidence reference used for CV recall.
+    """
+    if grid_df.empty:
+        return pd.DataFrame(columns=["shelter", "bin_utc", "n_state", "occupied",
+                                     "n_hc", "hc_occupied"])
+    g = (grid_df.groupby(["shelter", "bin_utc"])
+         .agg(n_state=("state", "sum"), n_hc=("hc", "sum"))
+         .reset_index())
+    g["occupied"] = g["n_state"] > 0
+    g["hc_occupied"] = g["n_hc"] > 0
+    return g
+
+
+def cohen_kappa(a, b) -> float:
+    """Cohen's kappa for two boolean sequences (chance-corrected agreement)."""
+    a = np.asarray(a, dtype=bool)
+    b = np.asarray(b, dtype=bool)
+    n = a.size
+    if n == 0:
+        return float("nan")
+    po = float(np.mean(a == b))
+    pa, pb = a.mean(), b.mean()
+    pe = pa * pb + (1 - pa) * (1 - pb)
+    if pe >= 1.0:
+        return 1.0 if po >= 1.0 else 0.0
+    return float((po - pe) / (1 - pe))
+
+
+def _cv_bins(cv_cam: pd.DataFrame, lag_s: float, bin_s: int,
+             stratum_col: str | None) -> pd.DataFrame:
+    """CV camera rows -> per-bin occupancy at a given lag (s) + stratum filter."""
+    d = cv_cam
+    if stratum_col:
+        d = d[d[stratum_col].astype(bool)]
+    if d.empty:
+        return pd.DataFrame(columns=["bin_utc", "cv_occupied", "cv_n_inside"])
+    binns = int(bin_s) * 1_000_000_000
+    shifted = d["t_utc"].astype("int64") + int(lag_s * 1_000_000_000)
+    b = (shifted // binns) * binns
+    grp = pd.DataFrame({"bin_utc": b, "occ": d["occupied"].to_numpy(),
+                        "n": pd.to_numeric(d["n_inside_estimated"], errors="coerce").to_numpy()})
+    return (grp.groupby("bin_utc")
+            .agg(cv_occupied=("occ", "max"), cv_n_inside=("n", "max"))
+            .reset_index())
+
+
+def best_lag_agreement(wiser_shelter: pd.DataFrame, cv_cam: pd.DataFrame, *,
+                       lag_grid_s, bin_s: int = 60,
+                       stratum_col: str | None = "usable_for_headline_summary"
+                       ) -> tuple[dict, pd.DataFrame]:
+    """
+    Scan ``lag_grid_s`` (seconds added to the CV UTC time) for the offset that
+    maximizes WISER↔CV occupancy agreement for one shelter↔camera pair.
+
+    WISER presence bins (:func:`wiser_shelter_presence`) are inner-joined to the
+    lagged CV occupancy bins (:func:`_cv_bins`, filtered to ``stratum_col``); at
+    each lag we compute Cohen's kappa, raw % agreement, and the number of joined
+    bins. Returns ``(best, curve)`` where ``best`` has the max-kappa lag and
+    ``curve`` is the full per-lag table. Kappa is NaN when a lag yields no shared
+    bins or a degenerate (all-same) stratum.
+    """
+    w = wiser_shelter[["bin_utc", "occupied"]].rename(columns={"occupied": "w_occupied"})
+    rows = []
+    for lag in lag_grid_s:
+        cb = _cv_bins(cv_cam, lag, bin_s, stratum_col)
+        if cb.empty:
+            rows.append({"lag_s": lag, "kappa": np.nan, "agreement": np.nan, "n_bins": 0})
+            continue
+        m = w.merge(cb, on="bin_utc", how="inner")
+        if m.empty:
+            rows.append({"lag_s": lag, "kappa": np.nan, "agreement": np.nan, "n_bins": 0})
+            continue
+        k = cohen_kappa(m["w_occupied"], m["cv_occupied"])
+        agree = float(np.mean(m["w_occupied"].to_numpy() == m["cv_occupied"].to_numpy()))
+        rows.append({"lag_s": lag, "kappa": k, "agreement": agree, "n_bins": int(len(m))})
+    curve = pd.DataFrame(rows)
+    valid = curve.dropna(subset=["kappa"])
+    if valid.empty:
+        best = {"lag_s": np.nan, "kappa": np.nan, "agreement": np.nan, "n_bins": 0}
+    else:
+        best = valid.loc[valid["kappa"].idxmax()].to_dict()
+    return best, curve
+
+
+def cv_detection_metrics(ref: pd.DataFrame, cv_bins: pd.DataFrame, *,
+                         ref_col: str = "occupied") -> dict:
+    """
+    CV shelter-detection performance against WISER **as the reference sensor**.
+
+    WISER (UWB) is unaffected by fog/rain/glass; the CV shelter cam is the optically
+    degraded sensor under test — so the two are not symmetric witnesses. Inner-join
+    the WISER reference bins ``ref`` (from :func:`shelter_occupancy_bins`; the
+    reference truth is column ``ref_col`` — use ``hc_occupied`` for recall,
+    ``occupied`` for precision) to the lagged CV occupancy bins ``cv_bins`` (from
+    :func:`_cv_bins`) on ``bin_utc`` and score:
+
+    - ``recall`` = TP/(TP+FN) = P(CV occupied | WISER occupied) — how much
+      WISER-confirmed occupancy CV recovers (low ⇒ CV misses rats, e.g. wet glass);
+    - ``precision`` = TP/(TP+FP) = P(WISER occupied | CV occupied) — is CV right when
+      it fires;
+    - ``specificity`` = TN/(TN+FP).
+
+    Returns counts + rates + ``n_bins`` and the two occupancy fractions; rates are
+    NaN when their denominator is 0. Symmetric κ is intentionally *not* the headline
+    here (it would blame WISER for CV's fog misses); it stays a lag-alignment
+    diagnostic in :func:`best_lag_agreement`.
+    """
+    keep = ["bin_utc", ref_col] + (["occupied"] if ref_col != "occupied" else [])
+    m = ref[keep].merge(cv_bins, on="bin_utc", how="inner")
+    if m.empty:
+        return {"n_bins": 0, "TP": 0, "FP": 0, "FN": 0, "TN": 0,
+                "recall": np.nan, "precision": np.nan, "specificity": np.nan,
+                "wiser_occ_frac": np.nan, "cv_occ_frac": np.nan}
+    wref = m[ref_col].to_numpy().astype(bool)
+    cv = m["cv_occupied"].to_numpy().astype(bool)
+    tp = int(np.sum(wref & cv)); fn = int(np.sum(wref & ~cv))
+    fp = int(np.sum(~wref & cv)); tn = int(np.sum(~wref & ~cv))
+    return {
+        "n_bins": int(len(m)), "TP": tp, "FP": fp, "FN": fn, "TN": tn,
+        "recall": (tp / (tp + fn)) if (tp + fn) else np.nan,
+        "precision": (tp / (tp + fp)) if (tp + fp) else np.nan,
+        "specificity": (tn / (tn + fp)) if (tn + fp) else np.nan,
+        "wiser_occ_frac": float(wref.mean()), "cv_occ_frac": float(cv.mean()),
+    }
 
 
 # ---------------------------------------------------------------------------
