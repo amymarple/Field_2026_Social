@@ -10,12 +10,22 @@ cams (CH05 = left, CH06 = right) are the optically degraded sensor. So this is a
     raw point-wise ROI inclusion (which over-splits because WISER jitters ~7-15 in
     around the ~36x27 in shelter). Raw point-wise presence is emitted only as a
     DIAGNOSTIC (and we quantify how many false exits the smoothing recovers).
-  * HEADLINE = CV detection performance: recall during WISER-confirmed
-    (high-confidence) shelter occupancy + precision when CV reports occupied,
-    stratified by glass quality and by day.
-  * Symmetric Cohen's kappa is demoted to a clock-lag / mapping ALIGNMENT DIAGNOSTIC
-    (WISER is Unix-ms UTC; CV t is local NVR wallclock, +4 h nominal + scanned
-    residual lag). Alignment is reported, never asserted as verified.
+  * HEADLINE = asymmetric measurement reconciliation, PER SHELTER (never pooled as
+    the main readout): (1) CV PRECISION given WISER near-shelter presence (when CV
+    says occupied, does WISER agree?) and (2) CV RECALL / lower-bound gap relative to
+    WISER presence (how much WISER-confirmed occupancy does CV recover?). CV
+    visible-inside-through-glass is a LOWER BOUND on WISER near-shelter occupancy
+    (huddle compression + wall-edge blind zone), so a recall gap is a
+    coverage/definition limit, NOT necessarily an optical failure and NEVER rat
+    absence. The CV-miss / WISER-present cases are stratified by view_quality,
+    glass_regime, fog_risk (when available), camera/shelter, and WISER validity.
+  * Symmetric Cohen's kappa is a clock-lag / mapping ALIGNMENT DIAGNOSTIC ONLY, never
+    the headline. It is BASE-RATE SENSITIVE: with WISER presence prevalence near 1.0
+    (e.g. house_1 ~0.99) kappa collapses toward 0 even at high raw agreement (the
+    kappa paradox), so a low kappa here reflects prevalence + definition mismatch, not
+    misalignment (the 2026-07-02 lag sweep is flat; see
+    outputs/audit/ALIGNMENT_DIAGNOSIS_2026-07-02.md). WISER is Unix-ms UTC; CV t is
+    local NVR wallclock (+4 h nominal + scanned residual lag): reported, never verified.
   * High-confidence WISER shelter episodes during the daytime rest window are used
     as QC/validation ANCHORS for CV — not as circular proof of the sleep-site claim
     (that claim itself rests on WISER).
@@ -69,12 +79,14 @@ STRATA = [("headline", "usable_for_headline_summary"),   # clear glass only
 # WISER-as-reference: shelter STATE smoothing (see wiser_shelter_state docstring).
 STATE_KW = dict(buffer_in=18.0, enter_s=120, exit_s=120,
                 near_frac=0.5, far_frac=0.2, hc_min_s=1200, hc_max_spread_in=24.0)
-# a (day, shelter) where WISER shows SUSTAINED high-confidence occupancy but CV
-# recovers less than half of it = likely CV optical failure (wet/degraded glass),
-# NOT a WISER error. Recall-based (not cv_occ_frac) because the failure mode is CV
-# MISSING confirmed rats, which is exactly low recall under sustained occupancy.
-CV_FAIL_WISER_HC = 0.50      # WISER hc-occupied fraction >= this (sustained) ...
-CV_FAIL_RECALL = 0.50        # ... while CV recall (vs hc) <= this (CV misses >=half)
+# a (day, shelter) where WISER shows SUSTAINED near-shelter presence but CV recovers
+# less than half of it = a large CV LOWER-BOUND GAP (CV visible-inside undercounts
+# WISER near-shelter occupancy). This is a coverage/definition gap (wall-edge blind
+# zone / huddle / glass), NOT an assertion of optical failure and NOT rat absence, and
+# NOT a WISER error. Recall-based because the mode is CV MISSING confirmed rats.
+# Thresholds are UNCHANGED from the prior version; only the framing/label changed.
+GAP_WISER_PRESENCE = 0.50    # WISER hc-occupied (near-shelter) fraction >= this ...
+GAP_MAX_RECALL = 0.50        # ... while CV recall (vs hc) <= this (CV recovers < half)
 
 
 def _local_day(bin_utc: pd.Series) -> pd.Series:
@@ -119,6 +131,25 @@ def _detection_table(ref: pd.DataFrame, cv_cam: pd.DataFrame, lag: float,
         for day, g in list(m.groupby("day")) + [("ALL", m)]:
             rows.append({"stratum": sname, "day": day, **_confusion(g)})
     return pd.DataFrame(rows)
+
+
+def _cv_bins_cov(cv_cam: pd.DataFrame, lag_s: float, bin_s: int,
+                 cov_cols: list[str]) -> pd.DataFrame:
+    """CV rows -> per-bin ``cv_occupied`` + carried covariate columns, at ``lag_s``,
+    on the coarse-usable stratum. Covariate-preserving sibling of ``w._cv_bins`` used
+    for the cross-modal RECONCILIATION (which stratifies the CV-miss / WISER-present
+    cases); CV is ~5-min-sampled so a 60 s bin holds <=1 CV row (an occupied row wins
+    on the rare collision). Unit-safe binning via the shared ``w._bin_utc_ns``."""
+    d = cv_cam[cv_cam["usable_for_coarse_activity"] == True].copy()
+    if d.empty:
+        return pd.DataFrame(columns=["bin_utc", "cv_occupied"] + cov_cols)
+    shifted = pd.to_datetime(d["t_utc"]) + pd.to_timedelta(lag_s, unit="s")
+    d["bin_utc"] = w._bin_utc_ns(shifted, bin_s)
+    d = d.sort_values("occupied")                     # occupied row wins on collision
+    agg = {"cv_occupied": ("occupied", "max")}
+    for c in cov_cols:
+        agg[c] = (c, "last")
+    return d.groupby("bin_utc").agg(**agg).reset_index()
 
 
 def _fig_kappa_curves(curves, best, out_path):
@@ -261,6 +292,18 @@ def main() -> None:
     cv = w.load_cv_shelter_sleep(cv_files)
     if cv.empty:
         raise SystemExit(f"[cv-crossval] no CV files found in {args.cv_dir} for {args.dates}")
+    # optional: enrich CV with the fog_risk_level covariate for the reconciliation
+    # stratification (measurement context only -- NOT a weather->behavior join, NOT a
+    # filter). Soft cross-subsystem dependency: skip cleanly if unavailable.
+    if "fog_risk_level" not in cv.columns:
+        try:
+            sys.path.insert(0, str(REPO_ROOT / "preprocessing" / "computer_vision"))
+            import fog_risk                                  # noqa: E402
+            cv = fog_risk.annotate(cv, ts="t")
+            print("  [reconciliation] fog_risk_level covariate added from AWN weather.")
+        except Exception as e:                               # noqa: BLE001
+            print(f"  [reconciliation] fog_risk enrichment skipped ({type(e).__name__}: {e}); "
+                  "stratifying by the covariates present in the CV output.")
     cv_by_cam = {cam: cv[cv["channel"] == cam].copy() for cam in ("CH05", "CH06")}
     print(f"  WISER daytime bins/shelter: {occ_by_shelter[SHELTERS[0]].shape[0]}; "
           f"episodes: {len(episodes)} ({int(episodes['high_confidence'].sum()) if len(episodes) else 0} "
@@ -325,6 +368,7 @@ def main() -> None:
             "lag_s": chosen_lag}
     print(f"  chosen mapping {best_map_id} {mapping} | alignment lag {chosen_lag:.0f}s "
           f"| joint kappa={chosen['joint_kappa']:.2f} (n={int(chosen['joint_n'])}) "
+          f"[ALIGNMENT DIAGNOSTIC ONLY, base-rate sensitive -- not the headline] "
           f"| per-mapping joint kappa {map_scores}")
 
     # --- HEADLINE: CV detection metrics at the chosen mapping + lag ---
@@ -335,6 +379,51 @@ def main() -> None:
         det.append(t)
     detection = pd.concat(det, ignore_index=True) if det else pd.DataFrame()
     detection.to_csv(out / "cv_detection_by_shelter_day.csv", index=False)
+
+    # --- CROSS-MODAL RECONCILIATION: stratify the CV-miss / WISER-present cases ---
+    # WISER near-shelter presence is the reference; CV visible-inside is a LOWER BOUND.
+    # Among WISER-present bins, report CV recall (hit rate) + miss count per covariate
+    # (view_quality, glass_regime, fog_risk if present, camera/shelter, n_inside_confidence
+    # as a wall-edge/huddle proxy, and WISER validity). Cohen's kappa is NOT used here.
+    wv = win.dropna(subset=["datetime"]).copy()
+    wv["bin_utc"] = w._bin_utc_ns(wv["datetime"], args.bin_s)
+    wvalid = (wv.groupby("bin_utc")
+              .agg(wiser_frac_low_anchor=("low_anchor_flag", "mean"),
+                   wiser_n_fix=("shortid", "size")).reset_index())
+    CAND_COV = ["view_quality_inside", "glass_regime", "fog_risk_level", "n_inside_confidence"]
+    have_cov = [c for c in CAND_COV if c in cv.columns]
+    missing_cov = [c for c in CAND_COV if c not in cv.columns]
+    rec_parts = []
+    for sh in SHELTERS:
+        cam = mapping[sh]
+        cvb = _cv_bins_cov(cv_by_cam[cam], chosen_lag, args.bin_s, have_cov)
+        m = (occ_by_shelter[sh][["bin_utc", "occupied", "hc_occupied"]]
+             .merge(cvb, on="bin_utc", how="inner"))
+        if m.empty:
+            continue
+        m = m.merge(wvalid, on="bin_utc", how="left")
+        m["shelter"] = sh; m["camera"] = cam
+        m["wiser_validity"] = np.where(m["wiser_frac_low_anchor"].fillna(0) > 0.5,
+                                       "low_anchor_heavy", "ok")
+        rec_parts.append(m)
+    recon = pd.concat(rec_parts, ignore_index=True) if rec_parts else pd.DataFrame()
+    rec_rows, n_present, n_miss = [], 0, 0
+    if not recon.empty:
+        present = recon[recon["occupied"]]           # WISER says a rat is near the shelter
+        n_present = int(len(present))
+        n_miss = int((~present["cv_occupied"].astype(bool)).sum())
+        for ax in ["shelter", "camera", "wiser_validity"] + have_cov:
+            for lvl, g in present.groupby(ax, dropna=False):
+                n = int(len(g)); hit = int(g["cv_occupied"].astype(bool).sum())
+                rec_rows.append({"axis": ax, "level": str(lvl), "n_wiser_present": n,
+                                 "cv_hit": hit, "cv_miss": n - hit,
+                                 "cv_recall_lowerbound": (hit / n) if n else float("nan")})
+    reconcile = pd.DataFrame(rec_rows, columns=["axis", "level", "n_wiser_present",
+                             "cv_hit", "cv_miss", "cv_recall_lowerbound"])
+    reconcile.to_csv(out / "cv_wiser_reconciliation_strata.csv", index=False)
+    print(f"  reconciliation: {n_miss}/{n_present} WISER-present bins are CV-miss "
+          f"(lower-bound gap) across {len(have_cov) + 3} strata axes"
+          + (f"; axes not in CV output: {missing_cov}" if missing_cov else ""))
 
     # --- DIAGNOSTIC: how many raw point-wise false-exits the smoothing recovers ---
     fe_rows = []
@@ -353,7 +442,7 @@ def main() -> None:
     false_exits = pd.DataFrame(fe_rows)
     false_exits.to_csv(out / "raw_vs_smoothed_false_exits.csv", index=False)
 
-    # --- WISER high-confidence anchors + wet/degraded-glass CV-failure call-outs ---
+    # --- WISER high-confidence anchors + CV lower-bound-gap call-outs ---
     if len(episodes):
         episodes.to_csv(out / "wiser_shelter_episodes.csv", index=False)
         episodes = episodes.assign(day=_local_day(episodes["start_utc"]))
@@ -367,19 +456,27 @@ def main() -> None:
         hc_anchor = pd.DataFrame()
     hc_anchor.to_csv(out / "wiser_hc_anchor_summary.csv", index=False)
 
-    # per (day, shelter) CV-failure flag: WISER hc-occupied sustained but CV empty
-    cv_fail = detection[(detection["day"] != "ALL") & (detection["stratum"] == "coarse")].copy()
-    if not cv_fail.empty:
-        cv_fail["likely_cv_optical_failure"] = (
-            (cv_fail["wiser_hc_frac"] >= CV_FAIL_WISER_HC) &
-            (cv_fail["recall_hc"] <= CV_FAIL_RECALL))
-        # dominant CV view_quality per (camera, day) for context
+    # per (day, shelter) CV lower-bound gap: WISER near-shelter presence sustained but
+    # CV recovers < half. This is a coverage/definition gap (wall-edge blind zone /
+    # huddle / glass), NOT an optical-failure assertion and NOT rat absence; the
+    # dominant glass mode is attached only as CONTEXT (on 2026-07-02 the CH05 gap is on
+    # clear glass, so it is not attributable to fog).
+    cv_gap = detection[(detection["day"] != "ALL") & (detection["stratum"] == "coarse")].copy()
+    if not cv_gap.empty:
+        cv_gap["cv_recall_gap_under_wiser_presence"] = (
+            (cv_gap["wiser_hc_frac"] >= GAP_WISER_PRESENCE) &
+            (cv_gap["recall_hc"] <= GAP_MAX_RECALL))
+        cv_gap["gap_interpretation"] = (
+            "CV visible-inside is a LOWER BOUND vs WISER near-shelter occupancy; gap "
+            "consistent with coverage/definition limits (wall-edge blind zone, huddle), "
+            "not necessarily fog")
+        # dominant CV view_quality per (camera, day) for CONTEXT only
         vq = cv.assign(day=cv["t"].dt.date.astype(str))
         vqmode = (vq.groupby(["channel", "day"])["view_quality_inside"]
                   .agg(lambda s: s.value_counts().idxmax()).rename("cv_view_quality_mode")
                   .reset_index().rename(columns={"channel": "camera"}))
-        cv_fail = cv_fail.merge(vqmode, on=["camera", "day"], how="left")
-    cv_fail.to_csv(out / "cv_optical_failure_flags.csv", index=False)
+        cv_gap = cv_gap.merge(vqmode, on=["camera", "day"], how="left")
+    cv_gap.to_csv(out / "cv_recall_gap_flags.csv", index=False)
 
     # --- figures (diagnostics only; skippable so a headless plotting abort can't
     #     take down the CSV/verdict/manifest outputs on the analysis PC) ---
@@ -394,36 +491,50 @@ def main() -> None:
                      fig / "X2_occupancy_overlay.png")
         _fig_recall_precision(detection, fig / "X3_recall_precision.png")
 
-    # --- verdict ---
+    # --- verdict (asymmetric measurement reconciliation; kappa is NOT the headline) ---
     byday = detection[(detection["day"] != "ALL") & (detection["stratum"] == "coarse")]
     perf_str = ", ".join(
-        f"{r.shelter}/{r.camera} {r.day[5:]}: recall={r.recall_hc:.2f} precision={r.precision:.2f} "
-        f"(WISER hc_frac={r.wiser_hc_frac:.2f}, n={r.n_bins})"
+        f"{r.shelter}/{r.camera} {r.day[5:]}: precision={r.precision:.2f} "
+        f"recall(lower-bound)={r.recall_hc:.2f} (WISER presence={r.wiser_hc_frac:.2f}, n={r.n_bins})"
         for r in byday.itertuples()) if not byday.empty else "no overlapping bins"
     fe_all = false_exits[false_exits["day"] == "ALL"]
     fe_str = ", ".join(f"{r.shelter}: raw {r.raw_occ_frac:.2f} -> smoothed {r.smooth_occ_frac:.2f} "
                        f"(+{r.recovered_false_exits} bins)" for r in fe_all.itertuples())
-    fails = cv_fail[cv_fail.get("likely_cv_optical_failure", False) == True] \
-        if "likely_cv_optical_failure" in cv_fail.columns else pd.DataFrame()
-    fail_str = ("; ".join(f"{r.day} {r.shelter}/{r.camera}: WISER hc {r.wiser_hc_frac:.2f} "
-                          f"vs CV occ {r.cv_occ_frac:.2f} (glass={getattr(r, 'cv_view_quality_mode', '?')})"
-                          for r in fails.itertuples()) or "none flagged")
+    gaps = (cv_gap[cv_gap.get("cv_recall_gap_under_wiser_presence", False) == True]
+            if "cv_recall_gap_under_wiser_presence" in cv_gap.columns else pd.DataFrame())
+    gap_str = ("; ".join(
+        f"{r.day} {r.shelter}/{r.camera}: WISER presence {r.wiser_hc_frac:.2f} but CV recall "
+        f"{r.recall_hc:.2f} (glass={getattr(r, 'cv_view_quality_mode', '?')})"
+        for r in gaps.itertuples()) or "none flagged")
+    # where the CV-miss / WISER-present bins concentrate (exclude shelter/camera axes,
+    # already reported per-shelter in the headline)
+    rstrat = reconcile[~reconcile["axis"].isin(["shelter", "camera"])] if not reconcile.empty \
+        else reconcile
+    recon_str = ("; ".join(
+        f"{r.axis}={r.level}: CV recovers {r.cv_recall_lowerbound:.2f} of {r.n_wiser_present} "
+        f"WISER-present ({r.cv_miss} miss)"
+        for r in rstrat.sort_values("cv_miss", ascending=False).head(4).itertuples())
+        if not rstrat.empty else "no WISER-present bins")
+    kA, kB = map_scores.get('A', float('nan')), map_scores.get('B', float('nan'))
     verdict = (
-        f"CV shelter detection vs WISER shelter STATE (dates {args.dates}). WISER is the "
-        f"fog-immune UWB reference; CV (through IR glass) is the sensor under test. "
-        f"ROI<->camera mapping = {best_map_id} {mapping} (alignment joint kappa_A="
-        f"{map_scores.get('A'):.2f}, kappa_B={map_scores.get('B'):.2f}); best-fit CV lag "
-        f"{chosen_lag:+.0f}s (TIMESTAMP-ALIGNED, UNVERIFIED; kappa is an alignment diagnostic "
-        f"only, not the headline). CV detection PER DAY ({chosen_stratum} glass): {perf_str}. "
-        f"CV PRECISION is high throughout (when CV says occupied, WISER agrees); the failure mode "
-        f"is RECALL, and it collapses on the wet/degraded-glass day where WISER shows sustained "
-        f"high-confidence occupancy but CV reads mostly empty -> Likely CV OPTICAL FAILURE: "
-        f"{fail_str}. Pooling both days hides this (pooled recall is dominated by the good-glass "
-        f"day), so read recall per day/glass. Smoothing vs raw point-wise ROI: {fe_str} (raw "
-        f"over-splits under WISER jitter; smoothed state is the biological occupancy signal). "
+        f"CV shelter detection reconciled against WISER shelter STATE (dates {args.dates}). "
+        f"WISER near-shelter presence is the fog-immune UWB REFERENCE; CV visible-inside-through-"
+        f"glass is the sensor and is a LOWER BOUND (huddle + wall-edge blind zone). Read PER "
+        f"SHELTER, never pooled. HEADLINE (mapping {best_map_id} {mapping}, {chosen_stratum} "
+        f"glass): {perf_str}. CV PRECISION is high throughout (when CV says occupied, WISER "
+        f"agrees); the gap is CV RECALL -- CV visible-inside is a LOWER BOUND relative to WISER "
+        f"near-shelter occupancy, and the gap is consistent with coverage/definition limits such "
+        f"as the wall-edge blind zone, NOT necessarily fog (on 2026-07-02 the CH05 gap occurs on "
+        f"CLEAR glass). Large per-day lower-bound gaps (WISER presence sustained, CV recovers "
+        f"<half): {gap_str}. CV-miss / WISER-present bins concentrate at: {recon_str}. "
+        f"Cohen's kappa (joint, per-mapping A={kA:.2f} B={kB:.2f}; best-fit lag {chosen_lag:+.0f}s) "
+        f"is an ALIGNMENT DIAGNOSTIC ONLY and is BASE-RATE SENSITIVE: with WISER presence prevalence "
+        f"near 1.0 it collapses toward 0 even at high agreement (kappa paradox), so it is NOT the "
+        f"headline -- a low value here is prevalence + definition mismatch, not misalignment (the "
+        f"07-02 lag sweep is flat; alignment is adequate, see ALIGNMENT_DIAGNOSIS_2026-07-02.md). "
+        f"Smoothing vs raw point-wise ROI: {fe_str} (raw over-splits under WISER jitter). "
         f"High-confidence WISER shelter episodes are QC/validation anchors for CV, NOT proof of "
-        f"the sleep-site claim. CV sees only the two shelters; CV head-counts undercount (huddle + "
-        f"wall-edge blind zone).")
+        f"the sleep-site claim. No behavior claim is made here.")
     (out / "crossval_verdict.txt").write_text(verdict, encoding="utf-8")
 
     w.write_run_manifest(out, {
@@ -438,10 +549,19 @@ def main() -> None:
         "n_high_conf_episodes": int(episodes["high_confidence"].sum()) if len(episodes) else 0,
         "rest_cutoff_inps_p99_stationary": moving_thr, "jitter_floor_in": jitter,
         "wiser_db": str(args.db), "cv_dir": str(args.cv_dir),
-        "metric_note": "HEADLINE = CV recall (vs WISER high-confidence occupancy) + precision "
-                       "(vs WISER smoothed occupancy), by glass quality + day. Cohen's kappa is a "
-                       "LAG/MAPPING ALIGNMENT DIAGNOSTIC only (symmetric kappa would misblame WISER "
-                       "for CV's fog misses).",
+        "metric_note": "HEADLINE = asymmetric reconciliation PER SHELTER (never pooled): CV "
+                       "PRECISION given WISER near-shelter presence + CV RECALL / lower-bound gap "
+                       "vs WISER presence, by glass quality + day. CV visible-inside is a LOWER "
+                       "BOUND (huddle + wall-edge blind zone); a recall gap is a coverage/definition "
+                       "limit, NOT optical failure and NOT rat absence.",
+        "kappa_note": "Cohen's kappa is an alignment/agreement DIAGNOSTIC ONLY and is BASE-RATE "
+                      "SENSITIVE (collapses toward 0 when WISER presence prevalence ~1.0 even at high "
+                      "agreement; the kappa paradox) -- NOT the headline. The 2026-07-02 fine lag "
+                      "sweep is flat, so alignment is adequate and low kappa is prevalence+definition, "
+                      "not misalignment (outputs/audit/ALIGNMENT_DIAGNOSIS_2026-07-02.md).",
+        "reconciliation_note": "cv_wiser_reconciliation_strata.csv stratifies the CV-miss / "
+                               "WISER-present bins by view_quality, glass_regime, fog_risk (when "
+                               "present), camera/shelter, n_inside_confidence, and WISER validity.",
         "reference_note": "WISER occupancy = SMOOTHED hysteretic buffer-tolerant shelter STATE "
                           "(wiser_shelter_state); raw point-wise ROI presence kept only as a "
                           "diagnostic (it over-splits during rest because WISER jitters).",
