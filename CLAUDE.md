@@ -150,6 +150,10 @@ occupancy/ROI, nightly activity, weather merge, provenance.
 Turns Reolink footage into per-animal **(x, y) + ID in a shared field frame (cm)** plus
 sleep/activity. No pose/keypoints. Tracking is per-camera, then transformed into one field frame.
 
+> 📖 **Read the method docs first.** For the shelter-CV measurement architecture and its known failure
+> modes, read `docs/methods/shelter_cv_measurement.md` and `docs/methods/shelter_failure_modes.md` before
+> the `change_log/` entries — the change logs are the chronology/provenance behind those summaries.
+
 > ⚠️ **This is the LIVE field PC.** It is concurrently running **WISER UWB tracking** and
 > **RTSP streaming/recording for ~10 channels** — that capture is the priority and must not be
 > disturbed (dropped frames can't be re-recorded). So CV work here must stay **light**: throttle

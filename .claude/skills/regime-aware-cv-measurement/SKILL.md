@@ -139,6 +139,10 @@ the exact files, columns, schemas, the CH05/CH06 glass-treatment (optical-regime
 data gaps you must handle, and the fillable output-report template. Drive those real artifacts —
 don't reinvent them.
 
+For the current-state architecture + the catalogue of known failure modes (with evidence and the
+sensor-artifact / lower-bound / unresolved classification), see `docs/methods/shelter_cv_measurement.md`
+and `docs/methods/shelter_failure_modes.md`.
+
 The WISER analog is the **`regime-aware-wiser-tracking`** skill (UWB jitter / dropout / unverified
 frame). They cross-validate: **WISER is fog-immune, so it is the reference for shelter occupancy when
 the glass is degraded; conversely CV misses huddles under wet glass** — use each to check the other,

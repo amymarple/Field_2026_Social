@@ -1,5 +1,9 @@
 # Shelter CV: Weather/Glass-Degradation-Aware, Zone-Based Occupancy (Stage 3.5, Phase A)
 
+> **Historical chronology.** For the current-state summary of the shelter-CV architecture and its known
+> failure modes, read `docs/methods/shelter_cv_measurement.md` and `docs/methods/shelter_failure_modes.md`
+> first. This file is preserved as the detailed provenance/history behind those docs.
+
 ## Date
 
 2026-07-01. Uncommitted; CV-only change (no capture/recorder code touched).
