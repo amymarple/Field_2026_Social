@@ -4,6 +4,10 @@
 #   fog  -> low visibility -> detection unreliable, ROI-motion noisy.
 #   rain -> raindrops / water motion in the ROI -> FALSE "occupied-high-motion"; detection degraded.
 #
+# SCOPE: this file holds TRANSIENT WEATHER windows (fog/rain), consumed by shelter_sleep.py. PERSISTENT
+# equipment / optical regimes (the CH05/CH06 IR-glass tape / lift / anti-fog-film changes) live separately
+# in data_manifests/glass_treatments.yaml (a covariate; not consumed by code yet).
+#
 # CLOCK CAVEAT: times below are as OBSERVED by the user (local wall clock). The Reolink on-screen
 # (OSD) clock runs ~1 h BEHIND the recording FILENAMES on this rig — when mapping a window to
 # specific hourly files, reconcile against the filename timestamps (see reolink_record notes).

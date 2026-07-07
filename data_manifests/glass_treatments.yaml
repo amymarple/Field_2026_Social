@@ -1,0 +1,103 @@
+# Shelter IR-glass optical-regime timeline (CH05 / CH06)
+# =====================================================================================================
+# PRINCIPLE. This file records the OPTICAL / INSTRUMENT STATE of the shelter IR glass over time — the
+# physical modifications made to fight condensation. It is a COVARIATE, NOT an exclusion rule, and it
+# does NOT by itself decide data validity. It records what was done to the glass and when; it does not
+# assert what effect that had on the view or on the animals. (Effect is to be measured, not assumed.)
+#
+# WHY IT EXISTS. CH05/CH06 image the rats THROUGH IR glass, so every change to that glass changes the
+# MEASUREMENT INSTRUMENT (not the rats). Cross-day shelter comparisons that span a change are comparing
+# two different cameras. This file makes "which optical regime was in effect at time T" queryable so later
+# analysis can carry it as a covariate / stratifier.
+#
+# RELATION TO field_conditions.yaml. That file holds TRANSIENT WEATHER windows (fog/rain) and is consumed
+# by shelter_sleep.py (forces bins >= degraded). THIS file holds PERSISTENT EQUIPMENT regimes (step
+# function). They are different things; nothing reads this file yet.
+#
+# CLOCK CAVEAT. Times are LOCAL wall-clock (EDT / UTC-4), as OBSERVED by the user. The Reolink OSD clock
+# runs ~1 h BEHIND the recording FILENAMES on this rig, so mapping a boundary to specific hourly files is
+# approximate — reconcile against filename timestamps (see FIELD_OBSERVATIONS.md + reolink_record notes).
+#
+# SCHEMA (per regime segment). Segments are contiguous and time-ordered; each holds until the next change.
+#   start / end       : "YYYY-MM-DD HH:MM" local EDT strings; end null = ongoing. end == next start.
+#   regime            : short label for the net glass configuration.
+#   layers            : modifications KNOWN to be active.
+#   uncertain_layers  : modifications whose presence is UNKNOWN (neither asserted nor denied).
+#   time_precision    : exact | approx | unknown  — for the boundary that STARTS this segment.
+#   confounded        : {value: <bool>, note: <why the coincident changes cannot be separated>} (optional).
+#   note / source     : free text / FIELD_OBSERVATIONS.md day + date.
+# =====================================================================================================
+
+channels: [CH05, CH06]
+
+regimes:
+  - start: "2026-06-28 19:25"
+    end:   "2026-06-30 09:00"
+    regime: bare
+    layers: []
+    time_precision: exact           # release / recording start
+    note: "baseline bare, seated glass"
+    source: "FIELD_OBSERVATIONS.md Days 1-2 (2026-06-28 / 06-29)"
+
+  - start: "2026-06-30 09:00"
+    end:   "2026-07-01 16:00"
+    regime: tape
+    layers: [aluminum_tape]
+    time_precision: approx          # "morning"; exact time not logged
+    note: "aluminum tape patched over the condensation break in the glass; changes IR/light/heat vs the
+      prior day (not a like-for-like baseline). Start time is a morning estimate, not logged precisely."
+    source: "FIELD_OBSERVATIONS.md Day 3 (2026-06-30)"
+
+  - start: "2026-07-01 16:00"
+    end:   "2026-07-02 13:00"
+    regime: lift_1cm
+    layers: [lift_1cm]
+    uncertain_layers: [aluminum_tape]   # whether the 06-30 tape was still on during this span was not logged
+    time_precision: exact
+    note: "IR glass physically lifted ~1 cm to reduce fog (airflow gap). Tape persistence not logged, so
+      the tape is neither asserted nor denied for this span (see uncertain_layers)."
+    source: "FIELD_OBSERVATIONS.md Day 4 (2026-07-01)"
+
+  - start: "2026-07-02 13:00"
+    end:   "2026-07-03 11:00"
+    regime: antifog_film
+    layers: [antifog_film]
+    time_precision: exact
+    confounded:
+      value: true
+      note: "anti-fog film applied and the 07-01 ~1 cm lift removed at the same time; the two changes were
+        made together, so their individual effects cannot be separated."
+    note: "anti-fog film applied to the glass; lift removed (glass returned to seated). Assessed next
+      morning as ineffective; the observer reported the film made the view WORSE than the bare glass — not
+      merely ineffective: the view was worse WITH the film on than with the glass bare (still fogs, rats
+      hardly visible). Weather was not logged on 07-02."
+    source: "FIELD_OBSERVATIONS.md Day 5 (2026-07-02)"
+
+  - start: "2026-07-03 11:00"
+    end:   null
+    regime: bare_seated_post_film
+    layers: []
+    time_precision: exact
+    note: "anti-fog film removed (reverted as ineffective); glass bare and seated, lift already off since
+      07-02. NOT assumed identical to the original 'bare' baseline — residue, cleaning, micro-scratches, or
+      repositioning may have changed the optics. Ongoing as of 2026-07-04."
+    source: "FIELD_OBSERVATIONS.md Day 6 (2026-07-03)"
+
+# Optical-regime boundaries. These are covariates: shelter view-quality / occupancy should be
+# STRATIFIED or ANNOTATED by regime before pooling across a boundary — they are NOT cut/exclusion lines.
+change_points:
+  - at: "2026-06-30 09:00"
+    kind: tape_applied
+    precision: approx
+    note: "not a like-for-like baseline vs prior days"
+  - at: "2026-07-01 16:00"
+    kind: lift_on
+    precision: exact
+  - at: "2026-07-02 13:00"
+    kind: film_on_and_lift_off
+    precision: exact
+    note: "primary optical-regime boundary; the two changes are confounded"
+  - at: "2026-07-03 11:00"
+    kind: film_off
+    precision: exact
+    note: "primary optical-regime boundary"

@@ -216,10 +216,23 @@ python place_zones.py --channel CH05                        :: draw/adjust the i
 - Per-bin CSV columns: `view_quality_inside, view_quality_doorway, n_detected_inside,
   n_detected_doorway, n_detected_outside_near_shelter, inside_motion_score, n_inside_estimated,
   n_inside_confidence, state, weather_logged, usable_for_headline_summary, usable_for_coarse_activity`.
-- Outputs to `outputs/`: `<CH>_sleep_<date>.csv`, `sleep_timeline_<date>.png` (state shading +
-  hatched degraded-view band + occupancy line), `<CH>_rest_heatmap_<date>.png` (approximate, **clear**
-  bins only), and a **split summary** — headline budget from clear bins only, a separate coarse-
-  activity track, and % of day clear/degraded/unusable.
+- **Optical-regime covariate columns** (appended by `glass_regime.py` from
+  `data_manifests/glass_treatments.yaml`): `glass_regime, glass_layers, glass_uncertain_layers,
+  glass_time_precision, glass_confounded, glass_regime_note`. **Annotation only** — they travel with the
+  output so later analysis can stratify/annotate by glass regime before pooling; **no** detector, view,
+  motion, count, safety, or filtering logic reads them. (`validate_shelter.py` output carries them too.)
+- **`measurement_context` columns** (appended by `measurement_context.py`): `camera_model`, `shelter_id`
+  (from `configs/field_layout.json`; `shelter_id` null off CH05/CH06), and `mc_run_id` linking each row to
+  its per-run manifest. Also **annotation + provenance only** — nothing in the pipeline reads them.
+- Per-run **`<script>_<date>.measurement_context.json`** sidecar (auto-written next to the CSVs): the run's
+  provenance — git commit, detector weights path/version (`rat_feasibility-6`)/fingerprint + conf/imgsz,
+  sampling params, per-camera block (model/mapping/role/pos/shelter), content-fingerprints of every config
+  (zones/calib/view_quality/field_conditions/glass_treatments), coordinate frame, and caveats. It makes
+  each number auditable/stratifiable; it never changes a result.
+- Outputs to `outputs/`: `<CH>_sleep_<date>.csv`, `shelter_sleep_<date>.measurement_context.json`,
+  `sleep_timeline_<date>.png` (state shading + hatched degraded-view band + occupancy line),
+  `<CH>_rest_heatmap_<date>.png` (approximate, **clear** bins only), and a **split summary** — headline
+  budget from clear bins only, a separate coarse-activity track, and % of day clear/degraded/unusable.
 
 Validate against ground truth (stratified by view_quality, with the safety check that rain/fog
 samples are never scored high-motion): `python validate_shelter.py --date 2026-06-30 --n 60`.

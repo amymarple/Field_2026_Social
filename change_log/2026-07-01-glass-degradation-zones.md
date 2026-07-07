@@ -362,6 +362,69 @@ the Tkinter bar uses one dynamic `btn_rects` hit-test, so extra buttons no longe
 ground-truth confirmation. Verified: `py_compile` clean; the huddle-on-labeled-frame replica still PASSES;
 a 9-button click-mapping test confirms every button routes to its correct key (no misroute).
 
+**`measurement_context` metadata layer — annotation + provenance only (2026-07-04).** New pure module
+`preprocessing/computer_vision/measurement_context.py` makes every shelter number interpretable as a
+measurement without changing any result. Per-row (additive): `camera_model` + `shelter_id` from
+`configs/field_layout.json` (`annotate_camera`; camera axis is general to all 6 channels, `shelter_id` null
+off CH05/CH06 since only those mount a house), plus `mc_run_id` linking each row to its run manifest. Per-run:
+an auto **JSON sidecar** `outputs/<script>_<date>.measurement_context.json` (mirrors
+`wiser_analysis_utils.write_run_manifest`, replicated not imported) with git commit + generated_utc, detector
+weights path/version (`rat_feasibility-6`)/fingerprint + conf/imgsz/batch/device, sampling params, per-camera
+block (model/mapping/derived role/pos/shelter), **content-fingerprints** of every config (zones, calib
+[+created/reproj_rmse], view_quality, field_conditions, glass_treatments) since none carry version fields,
+coordinate frame, inputs, and the "covariate not exclusion" caveats. `mc_run_id` hashes only the
+measurement-config fields (excludes time/mtimes/args/inputs) so identical setups share an id and any
+detector/config change flips it. Wired into `shelter_sleep.main` and `validate_shelter.report/main`
+additively (build context once, annotate rows, write sidecar). **Missing fields recorded for future** (not
+built): explicit config version fields (hash is the interim proxy), a detector model-card/registry, the AWN
+weather join, and `confirmed` calibration/georef status. Verified offline (no pipeline run): `py_compile`
+clean; camera spot-checks (CH05→RLC-520A/left/shelter_nadir, CH06→right, CH01→Duo3/None/paddock_overview_180,
+CH03→RLC-1212A/side_wide); additivity on the real `CH05_sleep_2026-06-30.csv` (320 rows) and
+`validation_2026-06-30.csv` (59 rows) — same rows, existing columns byte-identical, only
+`camera_model,shelter_id,mc_run_id` added; manifest has all sections with a real git commit + fingerprints;
+`run_id` stable across identical builds and flips on a conf change; `field_conditions.yaml` loader unchanged.
+
+**Measurement-context audit pass (2026-07-06).** Before adding the AWN weather join, ran a diagnostic audit
+(regime-aware-cv-measurement skill) that back-annotates the existing shelter outputs and stratifies errors —
+no detector/view/motion/count/safety/threshold change. Report + annotated copies + sidecar in
+`outputs/audit/` (`measurement_context_audit_2026-07-06.md`). Findings: (1) the per-row fields populate
+correctly on all outputs (`camera_model` RLC-520A, `shelter_id` CH05→left/CH06→right, `glass_regime`
+bare/tape, `mc_run_id`); (2) annotation is **additive-only** — every file's row count + existing columns
+byte-identical, only the 9 covariate columns added; (3) on the 06-30 validation (current detector
+`rat_feasibility-6`) errors **cluster in degraded view** (presence-recall clear 78% vs degraded 29%), and the
+apparent `bare` (38%) vs `tape` (77%) gap is a **fog/time-of-day confound, not a treatment effect** — `bare`
+is 71% degraded (pre-09:00, contains the 03:00–07:00 pre-dawn fog) vs `tape` 5%; SAFETY invariant intact
+(0/14 high-motion under degraded); (4) sidecar `mc_run_id` links cleanly to every row. Key gaps surfaced:
+**no CV outputs exist for 2026-07-01…07-03**, so the `lift_1cm`/`antifog_film`/`bare_seated_post_film` regimes
+(incl. the reported worse-than-bare film span) can't be audited; 06-29 sleep CSVs are legacy 6-col
+(regime-blind); pre-`measurement_context` outputs recorded no detector version. Categories assigned
+(artifact / mixed / lower-bound), no weather→behavior claim made. AWN weather join still deferred.
+
+**Weather-lite fog-RISK covariate + 07-01/07-02 processing + audit (2026-07-06).** New pure module
+`preprocessing/computer_vision/fog_risk.py` — a MEASUREMENT-CONTEXT covariate (not behavior): from AWN
+temp/dew-point/RH/rain it derives `dewpoint_gap`, `fog_risk_level` (low/med/high, documented heuristic
+thresholds), `fog_risk_reason`, joined to bins by nearest local-wallclock sample (`weather_lag_min` QC,
+30-min tol). Additive-only, like glass_regime/measurement_context; it explains/stratifies view degradation
+and never gates a measurement. Independently validated: the weather-only risk flags the *observed* fog
+windows (06-30 & 07-03 04:00–06:00 → high, gap ~1.2°C, RH ~93%). Processed the previously-missing
+**2026-07-01 + 07-02** shelter outputs (CH05+CH06, `--batch 1`, 5-min sampling) so the `lift_1cm` /
+`antifog_film` regimes now have CV outputs (07-03 has no footage on this PC). Audit report + annotated copies:
+`outputs/audit/fog_risk_audit_2026-07-06.md`. Findings (measurement audit, no behavioral claim): **degraded
+view + detector errors cluster in high fog-risk windows** — 06-30 validation presence-recall 86%→17% (low→
+high fog-risk; high-risk bins 90% degraded); CH06 07-02 high-risk 78% degraded. **Two sensor paths separated**
+by carrying fog-risk (weather) + glass_regime (instrument): CH05 07-02 degraded view sits in the `antifog_film`
+regime at LOW fog-risk (afternoon) → a **non-weather optical-regime artifact** during that regime, distinct
+from the weather-condensation pre-dawn path. The `antifog_film` regime **confounds three coincident 07-02 13:00
+changes — film applied + ~1 cm lift removed + glass reseated** — so this is **regime-attributable, not
+film-attributable** (cannot isolate which change caused it); consistent with, but not proof of, the observer's
+"film made view worse" note. CH06 consistently more degraded (zone-quad fallback). Fixed a `merge_asof` dtype
+bug in `fog_risk.annotate` (normalize both keys to `datetime64[ns]`). Data-availability caveats recorded (07-01
+AWN gap → fog-risk NaN; no 07-03 footage; `CH06_zones.json` missing; heuristic thresholds). No AWN
+weather-behavior join; no threshold tuning; no safety/view logic change; no exclusion rules. **Recommended next
+step:** transfer + process the 2026-07-03 footage — it captures the `bare_seated_post_film` regime (does view
+recover once `antifog_film` ends? → begins to disambiguate the confounded regime artifact) AND the 07-03
+04:00–06:00 pre-dawn high-fog-risk window (weather-only risk already flags it high; full AWN coverage there).
+
 **Labeling protocol formalized into a standalone doc (2026-07-04).** The labeling rules (settled over many
 hands-on rounds) were scattered across the `label_frames.py` docstring, `README_cv.md`, and these change
 logs. Consolidated them into a single human reference, **`preprocessing/computer_vision/LABELING_PROTOCOL.md`**,
@@ -383,3 +446,113 @@ key to hide/show all boxes (a non-destructive "peek at raw pixels"); the top hin
 off. Verified: `py_compile` clean; a pixel-level render test confirms a green edge over a gray background
 composites to the expected 0.5 blend (`[30,158,30]` RGB vs solid `[0,255,0]`), `b` returns the pixel to
 background, and toggling back restores the box. Also noted in `LABELING_PROTOCOL.md`.
+
+**Detector fine-tune ran + `train_detector.py` post-train val crash fixed (2026-07-04).** The
+harvest→label→train loop paid off: fine-tuning `yolo11s` on the expanded labeled set reached
+**mAP50 0.876 / mAP50-95 0.503 (P 0.857, R 0.820)** on the **session-held-out** validation videos
+(225 val images / 384 rat instances / 64 empty), a large jump from the earlier night→day 0.52. Weights:
+`runs/detect/rat_feasibility-6/weights/best.pt`. Caveat: this is the *detector's* box mAP on held-out
+frames — **not** the shelter occupancy/count accuracy; the real cross-check is a fresh `validate_shelter.py`
+pass on closed footage (still to do). Environment note: training now runs in a **new `yolo` conda env
+(torch 2.11.0+cu128)**, separate from `cv` (torch 2.6.0+cu124).
+
+The run **crashed at the very end** in the redundant standalone `model.val()` (train_detector.py:95) with a
+cuDNN `GET was unable to find an engine to execute this computation` → `CUDA illegal memory access` — the
+same RTX 3060 batched-inference failure we hit before (`batched imgsz>=960` crashes), now in the cu128 env.
+Training itself and its built-in final validation had already succeeded, so the metrics were never in doubt.
+Fix: **removed the second `model.val()`** and report metrics from the object `model.train()` returns
+(`self.trainer.validator.metrics` after final_eval on best.pt — the 0.876), via a new `_final_val_metrics()`
+helper with a `results.csv` last-row fallback. Also fixed a latent path bug: `best.pt` and `results.csv`
+paths now come from `model.trainer.save_dir`/`.best` (real run dir) instead of `--name`, which broke once
+ultralytics auto-incremented the dir to `rat_feasibility-6`. Verified: `py_compile` clean; unit test of
+`_final_val_metrics` passes on both the `results.box` path and a synthetic + the **real**
+`rat_feasibility-6/results.csv` (space-padded headers parse). No GPU re-run needed.
+
+**Promoted the fine-tune to the shelter default + validation set-up (2026-07-04).** Pointed
+`shelter_sleep.DEF_WEIGHTS` (the single default detector, inherited by `validate_shelter.py` via
+`ss.DEF_WEIGHTS`) at `runs/detect/rat_feasibility-6/weights/best.pt`; the old `rat_daynight/best.pt` is
+left on disk (not deleted), just no longer the default. Non-destructive, one-line change (+ a comment
+flagging that a numbered run dir is volatile — re-point/promote on the next retrain). De-risked the
+validation pass without touching the interactive labeler: (1) the yolo-env-trained weights (torch 2.11+cu128)
+**load and GPU-infer in the `cv` env at `--batch 1`** — 6 local frames scored 0/0/2/4/3/3 rats, no crash;
+(2) ran the **non-interactive slice of `validate_shelter`** (build_samples → score_pipeline) on real closed
+CH05/CH06 footage for 2026-06-30 with the new weights: footage decode, inside-zone counting, view_quality,
+robust motion, and state fusion all run. Early read (unlabeled): the retrained detector now returns counts
+on **clear** views (CH05 3 and 2 rats) where the old one badly under-detected, and **degraded** views still
+fall back to `empty` (never `occupied_high_motion` — safety rule holds). Footage present here: CH05/CH06 for
+2026-06-29..07-02. Remaining step is the human accuracy pass:
+`python validate_shelter.py --date 2026-06-30 --n 60` (defaults to the new weights, `--batch 1`), then
+compare its report to the pre-retrain 06-30 numbers (count bias −1.11, 26/45 presence FNs). Added a
+convenience launcher **`run_validate.ps1`** (analysis-PC) that sets `REOLINK_REC_ROOT`/`REOLINK_FFMPEG`/
+`KMP_DUPLICATE_LIB_OK` (only if unset), cd's to the CV folder, and runs validate_shelter in the `cv`
+env forwarding all args — `.\run_validate.ps1 --date 2026-06-30 --n 60` from any directory.
+
+**Re-scored the existing 06-30 labels with the new detector — no re-labeling (2026-07-04).** Key insight
+the user raised: the human ground truth (`gt_count/gt_view/gt_motion`) is **detector-independent** — only
+the pipeline's prediction changes — so the 59 already-labeled 06-30 samples (`outputs/validation_2026-06-30.csv`)
+can be **re-scored** with the new weights instead of collecting fresh labels. This is also a *better*
+comparison: paired, same frames, same truth, old vs new. Reconstructed each sample from its (channel, file, t),
+re-decoded the burst, re-ran `score_pipeline` with `rat_feasibility-6`, compared to the stored gt. Reproduction
+check: recomputed `view_quality` matched the old run **59/59** (view is detector-independent → confirms the
+same frames were re-decoded). **Paired result (OLD `rat_daynight` → NEW `rat_feasibility-6`):**
+- **Presence recall 26% → 70%** (missed 32/43 → 13/43): 19 frames where the old detector returned 0 but the
+  human saw rats are now detected.
+- **Clear-view count bias −1.11 → −0.13** (the systematic undercount is essentially gone); **MAE 1.20 → 0.76**.
+- **SAFETY unchanged (0 → 0 fog-as-high-motion)** — as expected; the detector doesn't touch the safety layer.
+
+So the retrain moved the **count/presence layer from "not reliable" toward usable**, quantified on a fair
+random 06-30 sample. Remaining, detector-independent, still-open (not fixed by the retrain): **MOTION** still/
+moving agreement is weak (42% at thresh 0.30; grid-search suggests ~0.00 → 58% — the `robust_inside_motion`
+metric/threshold needs work); the **fog threshold** is slightly lax (3 "called clear but you saw degradation");
+and big **huddles still undercount** (gt=4 → new 2-3) — the deferred huddle-class decision. Also the wall-edge
+blind zone still caps true headcount. Saved `outputs/validation_2026-06-30_rescored_rat_feasibility-6.csv`.
+(Full independent multi-date validation is still worthwhile later; this paired re-score answered "did the
+retrain help" without redoing the labeling.)
+
+**Encoded the shelter IR-glass optical-regime timeline as machine-readable data (2026-07-04).** The user
+flagged that glass interventions (anti-fog film, lift, tape) change the *measurement instrument*, so they
+must be carried as covariates — and that weather has a double role (weather→glass→view degrades the
+measurement AND weather→behavior changes the signal). Smallest durable first step (chosen over a full
+weather join / pipeline wiring): a new **`data_manifests/glass_treatments.yaml`** — a running, ordered,
+step-function timeline of the CH05/CH06 glass optical regime (bare → tape → lift_1cm → antifog_film →
+bare_seated_post_film) distilled from `FIELD_OBSERVATIONS.md` Days 1–6. **Data-only; nothing reads it yet**
+(no loader, no `shelter_sleep` behavior change). Header states the principle: it records instrument STATE,
+is a **covariate not an exclusion rule**, and doesn't decide validity by itself. Honest about uncertainty:
+tape start `time_precision: approx` (morning, exact time not logged); the 07-01 lift span carries
+`uncertain_layers: [aluminum_tape]` (tape persistence not logged — neither asserted nor denied); 07-02 is
+`confounded: {value: true, note: film+lift changed together, effects inseparable}`; the post-film regime is
+`bare_seated_post_film` (not assumed identical to baseline — residue/scratches/repositioning). `change_points`
+are framed as boundaries to **stratify/annotate by regime before pooling**, not cut lines. Distinct from
+`field_conditions.yaml` (transient weather windows, consumed by the pipeline); pointers added from
+`data_manifests/README.md`, `FIELD_OBSERVATIONS.md` Cross-references, and a `field_conditions.yaml` header
+comment. Verified: YAML parses; 5 regimes contiguous/time-ordered/last-ongoing; `regime-at-T` spot-checks
+resolve (e.g. 07-03 09:00 → antifog_film, 07-03 12:00 → bare_seated_post_film); `view_quality.load_conditions`
+output on `field_conditions.yaml` unchanged (comment-only edit) and the new file invisible to it. **Deferred
+(noted, not done):** the still-missing 07-03 04:00–06:00 pre-dawn fog window in `field_conditions.yaml` (adding
+it *would* change pipeline output → left for a follow-up); and the AWN weather covariate join
+(`audio_analysis/analysis/weather.py:load_awn`).
+
+**Anti-fog film efficacy correction (2026-07-04, user note).** The film not only failed — the observer
+reports it **made the CH05/CH06 view WORSE than the bare glass** that night (worse *with* the film on than
+without). Logged in `FIELD_OBSERVATIONS.md` Day 5/6 (observed events + a new data-interpretation flag) and
+echoed in the `glass_treatments.yaml` `antifog_film` note as an **attributed observer report, not a measured
+effect** (keeps the state-file principle). Implication: the film-on window (07-02 13:00 → 07-03 11:00) is the
+**worst** view regime — a view-degrading *instrument* covariate, not neutral — so its degradation is partly
+the film, not weather alone; treat it accordingly when stratifying shelter occupancy by regime.
+
+**Wired the glass regime in as annotation-only covariate metadata (2026-07-04).** New pure module
+`preprocessing/computer_vision/glass_regime.py`: `load_regimes()`, `regime_at(ts, channel=None)` (returns the
+active segment dict or None — None for out-of-timeline or a non-shelter channel), and `annotate(df, ts,
+channel)` which returns a COPY of `df` with six covariate columns appended — `glass_regime, glass_layers,
+glass_uncertain_layers, glass_time_precision, glass_confounded, glass_regime_note`. Wired into both shelter
+outputs additively, each right after its DataFrame is finalized: `shelter_sleep.analyze_channel` (per-bin
+CSV, `ts="t"` absolute) and `validate_shelter.report` (validation CSV, absolute ts = `scan.clip_start(file)`
++ `t`). **Strictly annotation-only** — nothing downstream reads these columns; detector/view-quality/motion/
+count/state/safety/thresholds/filtering and `field_conditions.yaml`/weather behavior are all unchanged (no
+AWN join, no 07-03 fog window, no threshold edits — deferred as before). README schema updated. Verified
+offline (no pipeline run): `py_compile` clean; `regime_at` spot-checks (2026-06-29 12:00→bare, 07-01 17:00→
+lift_1cm, 07-03 09:00→antifog_film, 07-03 12:00→bare_seated_post_film) + channel-gating (CH01→None) +
+out-of-range→None; and **additivity on the real existing outputs** — `CH05_sleep_2026-06-30.csv` (320 rows
+unchanged, existing columns byte-identical, +6 glass cols, regimes bare 240 / tape 80 split at 06-30 09:00),
+`CH05_sleep_2026-06-29.csv` (1700 bins all `bare`), and `validation_2026-06-30.csv` (59 rows unchanged, +6
+cols, bare/tape); `view_quality.load_conditions` on `field_conditions.yaml` still returns its 4 windows.

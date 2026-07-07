@@ -43,9 +43,15 @@ import extract_clip as ec
 import field_coords as fc
 import scan_for_rats as scan
 import view_quality as vq
+import glass_regime as gr        # annotation-only optical-regime covariate; changes no metric/decision
+import measurement_context as mc  # annotation + provenance only (camera covariates + run manifest)
 
 HERE = Path(__file__).resolve().parent
-DEF_WEIGHTS = HERE / "runs" / "detect" / "rat_daynight" / "weights" / "best.pt"
+# Shelter default detector (also inherited by validate_shelter.py via ss.DEF_WEIGHTS). Points at the
+# 2026-07-04 fine-tune on the expanded CH05/CH06 set (val mAP50 0.876, up from ~0.52). NB: a numbered
+# run dir is volatile - a later train_detector.py run makes rat_feasibility-7; re-point or promote to a
+# stable name if you retrain. Prior default was runs/detect/rat_daynight (kept on disk, not deleted).
+DEF_WEIGHTS = HERE / "runs" / "detect" / "rat_feasibility-6" / "weights" / "best.pt"
 CONDITIONS_PATH = HERE.parents[1] / "data_manifests" / "field_conditions.yaml"
 
 STATE_COLORS = {"empty": "#e8e8e8", "occupied_low_motion": "#3b6fb5",
@@ -225,6 +231,8 @@ def analyze_channel(channel, files, model, args, cfg, conditions):
             p.unlink()
     shutil.rmtree(tmp, ignore_errors=True)
     df = pd.DataFrame(rows).sort_values("t").reset_index(drop=True) if rows else pd.DataFrame()
+    if not df.empty:                                      # append optical-regime covariate columns only
+        df = gr.annotate(df, ts="t", channel=channel)     # (metadata; no fusion/view/count/safety logic reads it)
     heat = np.vstack(heat) if heat else np.empty((0, 2))
     return df, heat
 
@@ -355,23 +363,32 @@ def main() -> None:
     model = YOLO(args.weights)
 
     outputs = HERE / "outputs"; outputs.mkdir(exist_ok=True)
+    context = mc.build_context("shelter_sleep.py", args, args.channels,
+                               view_quality_config=(args.config or HERE / "configs" / "view_quality.yaml"),
+                               field_conditions=(args.conditions or None),
+                               glass_treatments=HERE.parents[1] / "data_manifests" / "glass_treatments.yaml")
+    rid = context["mc_run_id"]; inputs = {}
     dfs = {}
     for ch in args.channels:
         files = resolve_day_files(ch, args.date, args.hours)
         if not files:
             print(f"[{ch}] no closed files for {args.date}"); continue
         print(f"[{ch}] {len(files)} closed file(s)")
+        inputs[ch] = [f.name for f in files]
         cfg = vq.load_config(args.config, ch)          # per-channel (fog thresholds differ per cam)
         df, heat = analyze_channel(ch, files, model, args, cfg, conditions)
         if df.empty:
             print(f"[{ch}] no bins produced"); continue
+        df = mc.annotate_camera(df, ch); df["mc_run_id"] = rid   # measurement_context covariates (additive)
         df.to_csv(outputs / f"{ch}_sleep_{args.date}.csv", index=False)
         heatmap_plot(ch, heat, args.date, outputs / f"{ch}_rest_heatmap_{args.date}.png")
         dfs[ch] = df
     if dfs:
         timeline_plot(dfs, args.date, outputs / f"sleep_timeline_{args.date}.png")
         summarize(dfs, args)
-        print(f"\noutputs -> {outputs}  (per-bin CSVs, timeline, heatmaps)")
+        context["inputs"] = inputs
+        mc.write_manifest(outputs / f"shelter_sleep_{args.date}.measurement_context.json", context)
+        print(f"\noutputs -> {outputs}  (per-bin CSVs, timeline, heatmaps, measurement_context.json)")
 
 
 if __name__ == "__main__":

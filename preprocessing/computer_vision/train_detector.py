@@ -15,11 +15,39 @@ Output: runs/detect/<name>/weights/best.pt  (+ val plots). Plug into the tracker
 from __future__ import annotations
 
 import argparse
+import csv
 import random
 import re
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+
+
+def _final_val_metrics(results, results_csv: Path):
+    """(mAP50, mAP50-95, precision, recall) from training's OWN final validation.
+
+    Prefers the metrics object `model.train()` returns (the trainer's validator ran final_eval on
+    best.pt); falls back to the last row of results.csv. This avoids a second standalone GPU
+    `model.val()` - it is redundant (training already validated the held-out videos) and re-running
+    batched inference at imgsz>=960 trips the RTX 3060 CUDA illegal-access / cuDNN 'no engine' crash.
+    """
+    box = getattr(results, "box", None)
+    if box is not None:
+        return float(box.map50), float(box.map), float(box.mp), float(box.mr)
+    if not results_csv.exists():
+        return None
+    reader = csv.DictReader(results_csv.read_text().splitlines())
+    rows = [{(k or "").strip(): (v or "").strip() for k, v in r.items()} for r in reader]
+    if not rows:
+        return None
+    last = rows[-1]
+
+    def g(key):
+        v = last.get(key, "")
+        return float(v) if v else float("nan")
+
+    return (g("metrics/mAP50(B)"), g("metrics/mAP50-95(B)"),
+            g("metrics/precision(B)"), g("metrics/recall(B)"))
 
 
 def session_key(p: Path) -> str:
@@ -89,14 +117,21 @@ def main() -> None:
 
     data_yaml = build_split(Path(args.data_root), args.val_frac, val_sessions=args.val_sessions)
     model = YOLO(args.model)
-    model.train(data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch,
-                device=args.device, project=str(HERE / "runs" / "detect"), name=args.name,
-                patience=30, seed=0)
-    metrics = model.val()
-    box = metrics.box
-    print(f"\n=== feasibility: val mAP50={box.map50:.3f}  mAP50-95={box.map:.3f}  "
-          f"precision={box.mp:.3f}  recall={box.mr:.3f} ===")
-    best = HERE / "runs" / "detect" / args.name / "weights" / "best.pt"
+    results = model.train(data=str(data_yaml), epochs=args.epochs, imgsz=args.imgsz, batch=args.batch,
+                          device=args.device, project=str(HERE / "runs" / "detect"), name=args.name,
+                          patience=30, seed=0)
+
+    # Training already validated best.pt on the held-out videos; report THOSE metrics (no second
+    # model.val(): it's redundant and its batched imgsz-1280 inference crashes the RTX 3060). Read the
+    # real run dir from the trainer - ultralytics auto-increments `name` on repeat runs (rat_feasibility-6).
+    save_dir = Path(getattr(model.trainer, "save_dir", HERE / "runs" / "detect" / args.name))
+    best = Path(getattr(model.trainer, "best", save_dir / "weights" / "best.pt"))
+    m = _final_val_metrics(results, save_dir / "results.csv")
+    if m:
+        print(f"\n=== feasibility: val mAP50={m[0]:.3f}  mAP50-95={m[1]:.3f}  "
+              f"precision={m[2]:.3f}  recall={m[3]:.3f} ===")
+    else:
+        print("\n=== training done; val metrics unavailable - see results.csv / val plots ===")
     print(f"best weights: {best}")
     if args.predict_clip:
         YOLO(str(best)).predict(source=args.predict_clip, save=True, conf=0.25,

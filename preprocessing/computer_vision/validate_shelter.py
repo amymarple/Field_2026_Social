@@ -33,6 +33,8 @@ import pandas as pd
 
 import shelter_sleep as ss
 import view_quality as vq
+import glass_regime as gr        # annotation-only optical-regime covariate; changes no metric/decision
+import measurement_context as mc  # annotation + provenance only (camera covariates + run manifest)
 
 HERE = Path(__file__).resolve().parent
 
@@ -196,7 +198,7 @@ def collect_truth(samples, hold=3):
     cv2.destroyAllWindows()
 
 
-def report(samples, date, cfg, out_csv):
+def report(samples, date, cfg, out_csv, run_id=None, context=None):
     # a labeled row now needs count + view; motion is optional (only meaningful when occupied & viewable)
     rows = [s for s in samples if s.get("gt_count") is not None and s.get("gt_view") is not None]
     if not rows:
@@ -205,7 +207,17 @@ def report(samples, date, cfg, out_csv):
                                               "inside_motion_score", "pred_state", "gt_count", "gt_view",
                                               "gt_motion", "gt_n_moving")}
                        for s in rows])
+    # annotation-only optical-regime covariate columns (absolute time = file start + t seconds).
+    # Appended AFTER all metrics are derived from the existing columns; nothing below reads these.
+    abs_ts = [ss.scan.clip_start(fn)[0] + pd.Timedelta(seconds=float(t))
+              if ss.scan.clip_start(fn)[0] is not None else pd.NaT
+              for fn, t in zip(df["file"], df["t"])]
+    df = gr.annotate(df, ts=abs_ts, channel="channel")
+    if run_id is not None:                                       # measurement_context covariates (additive)
+        df = mc.annotate_camera(df, "channel"); df["mc_run_id"] = run_id
     df.to_csv(out_csv, index=False)
+    if context is not None:
+        mc.write_manifest(out_csv.parent / f"validation_{date}.measurement_context.json", context)
     n = len(df)
     print(f"\n=== validation ({n} labeled samples, {date}) ===")
     vqc = df["view_quality_inside"].value_counts()
@@ -305,7 +317,15 @@ def main() -> None:
           "n next, x skip, b back, q finish.  Keys are case-insensitive.")
     collect_truth(samples)
     outputs = HERE / "outputs"; outputs.mkdir(exist_ok=True)
-    report(samples, args.date, cfg, outputs / f"validation_{args.date}.csv")
+    files_by_ch = {}
+    for s in samples:
+        files_by_ch.setdefault(s["channel"], set()).add(s["file"])
+    context = mc.build_context("validate_shelter.py", args, args.channels,
+                               view_quality_config=(args.config or HERE / "configs" / "view_quality.yaml"),
+                               glass_treatments=HERE.parents[1] / "data_manifests" / "glass_treatments.yaml",
+                               inputs={ch: sorted(v) for ch, v in files_by_ch.items()})
+    report(samples, args.date, cfg, outputs / f"validation_{args.date}.csv",
+           run_id=context["mc_run_id"], context=context)
     import shutil; shutil.rmtree(tmp, ignore_errors=True)
 
 

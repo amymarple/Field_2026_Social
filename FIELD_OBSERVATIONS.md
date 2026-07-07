@@ -141,8 +141,9 @@ Source of truth for identity + validity: `wiser_tracking_analysis/configs/rat_id
   the rocks in the middle. 20:26 fighting among 3 rats near the middle rocks — **Sen won against the
   other two.** _Rig:_ ~**13:00 EDT** two coincident changes on the CH05/CH06 shelter IR glass: an
   **anti-fog film applied**, and the **~1 cm glass lift from 07-01 removed** (glass returned to
-  seated). Efficacy assessed next morning — see 07-03: **both did not work** (still fogs, rats hardly
-  visible).
+  seated). Efficacy assessed next morning — see 07-03: **both did not work**; worse, per the observer the
+  **anti-fog film actually made the field of view WORSE** that night — not merely ineffective (the view was
+  worse *with* the film on than with the bare glass; still fogs, rats hardly visible).
 - **Data interpretation flags:** **rig change at ~13:00 07-02** — CH05/06 view/optics/geometry
   differ before vs after; not a like-for-like baseline vs prior days (add to the fog-mitigation
   series: 06-30 aluminum tape → 07-01 ~1 cm lift → **07-02 ~13:00 film on + lift off**). The two
@@ -163,16 +164,20 @@ Source of truth for identity + validity: `wiser_tracking_analysis/configs/rat_id
 - **Observed field events:** _Behavior:_ 06:00 the sleeping group **split into a 3 + 2
   configuration** (all five remaining rats accounted for). _Fog / rig:_ ~**04:00–06:00 EDT** heavy
   fog on the CH05/CH06 shelter IR glass, rats **hardly visible** — confirming the **07-02 ~13:00
-  changes (anti-fog film on + ~1 cm lift off) did not work**. ~**11:00 EDT** the **anti-fog film was
-  removed** (reverted, since it didn't help; the glass is now bare and seated — lift already off since
-  07-02). No mitigation to date (06-30 tape, 07-01 lift, 07-02 film) has cleared the pre-dawn shelter
+  changes (anti-fog film on + ~1 cm lift off) did not work** — in fact the **anti-fog film made the field
+  of view WORSE** that night (worse *with* the film on than with the bare glass, not merely ineffective).
+  ~**11:00 EDT** the **anti-fog film was removed** (reverted, since it not only failed to help but
+  **worsened the view**; the glass is now bare and seated — lift already off since 07-02). No mitigation to date (06-30 tape, 07-01 lift, 07-02 film) has cleared the pre-dawn shelter
   view.
 - **Data interpretation flags:** 2026-07-03 ~04:00–06:00 is a **CH05/06 fog / view-degradation
   window** — treat the inside view as **degraded/unusable** there; "empty" or "no motion" in this
   window is **fog-obscured, not true absence/stillness** (consistent with the 06-30 accuracy pass:
   the fog/safety layer holds but the count/motion layer fails under fog, and the wall-edge blind
   zone). Not yet in `data_manifests/field_conditions.yaml`; add this window there so the shelter
-  pipeline's weather cross-check forces these bins ≥ degraded.
+  pipeline's weather cross-check forces these bins ≥ degraded. Also: the **anti-fog film regime (07-02
+  13:00 → 07-03 11:00, `data_manifests/glass_treatments.yaml`) had a WORSE view than the adjacent bare/lift
+  regimes** — the film is a **view-degrading covariate**, so shelter occupancy/detection in that window is
+  even less reliable, and part of that degradation is the *instrument* (film), not weather alone.
 - **Scientific ideas / hypotheses:** pre-dawn IR-glass fogging looks like a **recurring hard optical
   floor** for CH05/CH06, not fixable by the surface treatments tried so far (condensation likely
   driven by the IR-light heat + overnight temp/humidity, forming on the inner glass). Separately,
@@ -281,6 +286,9 @@ Structured provenance this log summarizes — go here for exact, machine-readabl
 
 - `wiser_tracking_analysis/configs/rat_identities.csv` — animal ↔ tag mapping, Sova `valid_until`.
 - `data_manifests/field_conditions.yaml` — machine-readable weather / fog / rain exclusion windows.
+- `data_manifests/glass_treatments.yaml` — machine-readable CH05/CH06 shelter IR-glass optical-regime
+  timeline (the Day 3–6 tape / lift / anti-fog-film interventions as queryable state; a covariate, not an
+  exclusion rule).
 - `data_manifests/2026-06-29-wiser-pilot.yaml` — tunnel removal (07:00 EDT 2026-06-29), Sova cutoff,
   time-varying structures.
 - `change_log/2026-07-01-audio-extraction-on-analysis-pc.md` — 2026-06-29 NVR IP-change audio gap
