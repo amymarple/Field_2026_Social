@@ -77,11 +77,16 @@ regimes:
     end:   null
     regime: bare_seated_post_film
     layers: []
+    uncertain_layers: [damaged_original_antifog_coating]   # observer: film removal may have destroyed the glass's original anti-fog coating
     time_precision: exact
     note: "anti-fog film removed (reverted as ineffective); glass bare and seated, lift already off since
-      07-02. NOT assumed identical to the original 'bare' baseline — residue, cleaning, micro-scratches, or
-      repositioning may have changed the optics. Ongoing as of 2026-07-04."
-    source: "FIELD_OBSERVATIONS.md Day 6 (2026-07-03)"
+      07-02. NOT assumed identical to the original 'bare' baseline: the observer's read (the overnight
+      07-03 ~21:50 -> 07-04 ~09:30 fog window, after evening rain, was long/heavy) is that REMOVING THE FILM
+      DAMAGED THE GLASS'S ORIGINAL ANTI-FOG COATING, so this glass fogs WORSE than the pre-intervention bare
+      glass. Treat as a distinct DEGRADED-COATING optical regime, NOT a recovery to the 'bare' baseline; do
+      not pool with the pre-tape 'bare' regime (tentative -- observer 'looks like'; confirm by comparing
+      post-film vs original-bare fog severity). Ongoing as of 2026-07-04."
+    source: "FIELD_OBSERVATIONS.md Days 6-7 (2026-07-03 / 07-04)"
 
 # Optical-regime boundaries. These are covariates: shelter view-quality / occupancy should be
 # STRATIFIED or ANNOTATED by regime before pooling across a boundary — they are NOT cut/exclusion lines.
@@ -100,4 +105,5 @@ change_points:
   - at: "2026-07-03 11:00"
     kind: film_off
     precision: exact
-    note: "primary optical-regime boundary"
+    note: "primary optical-regime boundary; film removal may have DAMAGED the original anti-fog coating, so
+      the post-film glass is a degraded-coating regime, not a return to the pre-tape 'bare' baseline"

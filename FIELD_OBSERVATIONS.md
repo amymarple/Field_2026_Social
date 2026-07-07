@@ -189,16 +189,28 @@ Source of truth for identity + validity: `wiser_tracking_analysis/configs/rat_id
   check whether it recovers any rats in fogged frames or whether fog is a hard optical floor; test
   whether sleep-cluster membership (the 3-vs-2 split) predicts nighttime proximity / co-movement.
 
-### Day 7 — 2026-07-04 · obs — · Equipment — · July 4th fireworks disturbance
+### Day 7 — 2026-07-04 · obs — · Equipment/optics ⚠️ post-film glass fogging (anti-fog coating likely damaged) · July 4th fireworks disturbance
 
 - **Observed field events:** during the July 4th fireworks, **increased group-level movement** —
   more following behavior and some repeated route-like movement that *superficially* resembled
-  patrolling. Following behavior **increased after** the disturbance.
+  patrolling. Following behavior **increased after** the disturbance. _Fog \ rig:_ **evening rain**,
+  then fog on the CH05/CH06 shelter IR glass from ~**21:50 EDT (07-03)** through ~**09:30 EDT (07-04)** —
+  a long (~11.5 h) overnight view-degradation window, much wider than the pre-dawn 04:00–06:00 ones. The
+  observer's read: **removing the anti-fog film (07-03 ~11:00) appears to have DAMAGED the glass's original
+  anti-fog coating**, so the now-bare post-film glass fogs **worse than the pre-intervention bare glass** —
+  film removal was **not** a clean revert to baseline.
 - **Data interpretation flags:** fireworks are an **external acoustic/light disturbance** — a
   movement spike this evening is **disturbance-driven, not spontaneous social behavior**; expect
   elevated broadband level on the CH01/CH02 mics (`audio_analysis`) over the fireworks window. The
   "route-like / patrolling" appearance is **superficial** — do not label it territorial patrol.
-  Exact timing not logged.
+  Exact timing not logged. **Separately (fog/optics):** treat **07-03 ~21:50 → 07-04 ~09:30** as a
+  CH05/CH06 fog / view-degradation window (inside view **degraded/unusable**; "empty"/"no motion" there is
+  **fog-obscured, not true absence/stillness**) — add to `data_manifests/field_conditions.yaml`. And
+  **`bare_seated_post_film` (since 07-03 11:00) is NOT a return to the `bare` baseline**: the original
+  anti-fog coating appears **damaged** by the film removal, so it is a **distinct, worse** optical regime —
+  do **not** use post-07-03 shelter view-quality as a clean "recovery" test of the `antifog_film` regime,
+  and do not pool it with the pre-tape `bare` regime (tentative — observer's "looks like"; confirm by
+  comparing post-film vs original-bare fog severity).
 - **Scientific ideas / hypotheses:** this did *not* look like a simple fear/escape response.
   Fireworks may function less like a *localized predator threat* and more like a **diffuse,
   habitat-level disturbance** — logically similar to thunder, earthquake-like vibration, or shelter
