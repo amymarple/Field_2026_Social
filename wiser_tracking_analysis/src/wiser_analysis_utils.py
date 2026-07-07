@@ -3378,6 +3378,25 @@ def load_cv_shelter_sleep(paths) -> pd.DataFrame:
     return cv
 
 
+def _bin_utc_ns(dt: pd.Series, bin_s: int) -> np.ndarray:
+    """
+    Resolution-agnostic time-bin key. Floor naive-UTC ``datetime`` values to
+    ``bin_s``-second bins and return **int64 nanoseconds since the Unix epoch**.
+
+    ``.astype("int64")`` on a datetime Series returns the raw integer in the
+    Series' OWN unit — nanoseconds only when the dtype is ``datetime64[ns]``.
+    Under pandas >= 2.0 a SQLite/CSV load can yield ``datetime64[ms]`` (or
+    ``[us]``), so the old ``astype("int64") // (bin_s * 1e9)`` under-divided and
+    collapsed an entire window into ONE bin (the 2026-07-02 cross-val failure).
+    Flooring via ``.dt.floor`` is unit-aware, and the explicit ``datetime64[ns]``
+    cast pins the epoch integer to nanoseconds, so ns/us/ms inputs bin
+    identically. ``bin_utc`` stays int64-ns to preserve the downstream contract
+    (grid ``np.arange`` step, joins, ``start_utc`` / ``end_utc`` arithmetic).
+    """
+    floored = pd.to_datetime(dt).dt.floor(f"{int(bin_s)}s")
+    return floored.astype("datetime64[ns]").astype("int64").to_numpy()
+
+
 def wiser_shelter_presence(win: pd.DataFrame, roi_cfg: dict, shelter_names,
                            *, bin_s: int = 60, resting_only: bool = False
                            ) -> pd.DataFrame:
@@ -3403,8 +3422,7 @@ def wiser_shelter_presence(win: pd.DataFrame, roi_cfg: dict, shelter_names,
     d = win.dropna(subset=["x", "y", "datetime"]).copy()
     if resting_only and "resting" in d.columns:
         d = d[d["resting"]]
-    binns = int(bin_s) * 1_000_000_000
-    d["bin_utc"] = (d["datetime"].astype("int64") // binns) * binns
+    d["bin_utc"] = _bin_utc_ns(d["datetime"], bin_s)   # int64-ns, unit-safe
     all_bins = np.sort(d["bin_utc"].unique())
     out = []
     for sname in shelter_names:
@@ -3498,8 +3516,8 @@ def wiser_shelter_state(win: pd.DataFrame, roi_cfg: dict, shelter_names,
     if "night" not in d.columns:
         raise KeyError("wiser_shelter_state needs a 'night' column "
                        "(run select_route_window first).")
-    binns = int(bin_s) * 1_000_000_000
-    d["bin_utc"] = (d["datetime"].astype("int64") // binns) * binns
+    binns = int(bin_s) * 1_000_000_000                 # ns grid step (bin_utc is int64-ns)
+    d["bin_utc"] = _bin_utc_ns(d["datetime"], bin_s)   # unit-safe; see _bin_utc_ns
     n_enter = max(1, int(np.ceil(enter_s / bin_s)))
     n_exit = max(1, int(np.ceil(exit_s / bin_s)))
 
@@ -3616,9 +3634,8 @@ def _cv_bins(cv_cam: pd.DataFrame, lag_s: float, bin_s: int,
         d = d[d[stratum_col].astype(bool)]
     if d.empty:
         return pd.DataFrame(columns=["bin_utc", "cv_occupied", "cv_n_inside"])
-    binns = int(bin_s) * 1_000_000_000
-    shifted = d["t_utc"].astype("int64") + int(lag_s * 1_000_000_000)
-    b = (shifted // binns) * binns
+    shifted = pd.to_datetime(d["t_utc"]) + pd.to_timedelta(lag_s, unit="s")
+    b = _bin_utc_ns(shifted, bin_s)                    # unit-safe; lag applied as a timedelta
     grp = pd.DataFrame({"bin_utc": b, "occ": d["occupied"].to_numpy(),
                         "n": pd.to_numeric(d["n_inside_estimated"], errors="coerce").to_numpy()})
     return (grp.groupby("bin_utc")

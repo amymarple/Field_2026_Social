@@ -213,6 +213,10 @@ def main() -> None:
                     help="ROI noise buffer (in); 12-24 recommended for WISER jitter.")
     ap.add_argument("--enter-s", type=float, default=STATE_KW["enter_s"])
     ap.add_argument("--exit-s", type=float, default=STATE_KW["exit_s"])
+    ap.add_argument("--no-plots", action="store_true",
+                    help="skip matplotlib figures; still write all CSVs, the verdict, and the "
+                         "run manifest. Use on the analysis PC, where the headless matplotlib/MKL "
+                         "stack can abort natively at savefig (the figures are diagnostics only).")
     args = ap.parse_args()
     if not args.db.exists():
         raise SystemExit(f"[cv-crossval] WISER DB not found: {args.db}")
@@ -377,14 +381,18 @@ def main() -> None:
         cv_fail = cv_fail.merge(vqmode, on=["camera", "day"], how="left")
     cv_fail.to_csv(out / "cv_optical_failure_flags.csv", index=False)
 
-    # --- figures ---
-    curves_plot = {f"{sh}->{mapping[sh]}": curves_by_map[(best_map_id, chosen_stratum, sh)]
-                   for sh in SHELTERS}
-    curves_plot["joint"] = joint_by[(best_map_id, chosen_stratum)].rename(columns={"joint_kappa": "kappa"})
-    _fig_kappa_curves(curves_plot, best, fig / "X1_lag_alignment_diagnostic.png")
-    _fig_overlay(occ_by_shelter, raw_by_shelter, cv_by_cam, mapping, chosen_lag, args.bin_s,
-                 fig / "X2_occupancy_overlay.png")
-    _fig_recall_precision(detection, fig / "X3_recall_precision.png")
+    # --- figures (diagnostics only; skippable so a headless plotting abort can't
+    #     take down the CSV/verdict/manifest outputs on the analysis PC) ---
+    if args.no_plots:
+        print("  [--no-plots] skipping figures; CSVs, verdict, and manifest still written.")
+    else:
+        curves_plot = {f"{sh}->{mapping[sh]}": curves_by_map[(best_map_id, chosen_stratum, sh)]
+                       for sh in SHELTERS}
+        curves_plot["joint"] = joint_by[(best_map_id, chosen_stratum)].rename(columns={"joint_kappa": "kappa"})
+        _fig_kappa_curves(curves_plot, best, fig / "X1_lag_alignment_diagnostic.png")
+        _fig_overlay(occ_by_shelter, raw_by_shelter, cv_by_cam, mapping, chosen_lag, args.bin_s,
+                     fig / "X2_occupancy_overlay.png")
+        _fig_recall_precision(detection, fig / "X3_recall_precision.png")
 
     # --- verdict ---
     byday = detection[(detection["day"] != "ALL") & (detection["stratum"] == "coarse")]

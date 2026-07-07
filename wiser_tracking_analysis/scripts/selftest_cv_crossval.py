@@ -10,7 +10,10 @@ No DB, no CV files. Verifies:
   * wiser_shelter_presence counts distinct rats inside a shelter rect per bin;
   * cv_detection_metrics recall/precision/specificity match hand-built confusion counts;
   * best_lag_agreement recovers a KNOWN clock lag with high kappa for the matching camera
-    and stays low for an unrelated one (so the mapping test picks correctly).
+    and stays low for an unrelated one (so the mapping test picks correctly);
+  * resolution invariance (regression for the datetime64[ms] binning bug): the SAME
+    timestamps expressed as datetime64[ns], [us], and [ms] must produce identical bins,
+    episodes, and occupancy — and must NOT collapse a multi-bin window to one bin.
 
 Run:  python scripts/selftest_cv_crossval.py     (-> PASS/FAIL, exit code)
 """
@@ -158,6 +161,53 @@ def main() -> int:
         print("  FAIL matching-camera kappa too low"); ok = False
     if not (best_m["kappa"] > best_o["kappa"] + 0.3):
         print("  FAIL mapping test: correct camera not clearly better"); ok = False
+
+    # --- resolution invariance (regression for the datetime64[ms] binning bug) ---
+    # The same timestamps as ns / us / ms must yield IDENTICAL bins & occupancy. Under the
+    # old `astype("int64") // (bin_s*1e9)` logic, [ms]/[us] under-divided and collapsed a
+    # whole window into ONE bin (the 2026-07-02 CV x WISER cross-val failure); the prior
+    # selftest never caught it because its synthetic timestamps were always [ns].
+    rrng = np.random.default_rng(7)
+    rrows = _stay(rrng, "R", base, 40, 100, 100, jitter_in=12.0, hz=1.0)
+    rrows += _stay(rrng, "R", base + pd.Timedelta(minutes=40), 6, 600, 600, jitter_in=5.0, hz=1.0)
+    win_r = pd.DataFrame(rrows)
+    cv_t = pd.to_datetime(np.array([int(base.value) + i * BINNS for i in range(46)]))
+    cv_r = pd.DataFrame({"t_utc": cv_t,
+                         "occupied": ([True] * 30 + [False] * 16),
+                         "n_inside_estimated": ([1] * 30 + [0] * 16),
+                         "usable_for_headline_summary": True})
+
+    def _signature(unit):
+        wr = win_r.assign(datetime=win_r["datetime"].astype(f"datetime64[{unit}]"))
+        g, e = w.wiser_shelter_state(wr, roi_cfg, ["house_1"], bin_s=BIN_S,
+                                     buffer_in=18.0, enter_s=120, exit_s=120,
+                                     hc_min_s=1200, hc_max_spread_in=24.0)
+        occ = w.shelter_occupancy_bins(g)
+        pres = w.wiser_shelter_presence(wr, roi_cfg, ["house_1"], bin_s=BIN_S)
+        cr = cv_r.assign(t_utc=cv_r["t_utc"].astype(f"datetime64[{unit}]"))
+        cb = w._cv_bins(cr, 0, BIN_S, None)
+        return {
+            "grid_bins": int(len(g)),
+            "occ_bins": int(occ["occupied"].sum()) if not occ.empty else 0,
+            "hc_bins": int(occ["hc_occupied"].sum()) if not occ.empty else 0,
+            "episodes": int(len(e)),
+            "epi_dur_s": int(e["duration_s"].sum()) if len(e) else 0,
+            "pres_bins": int((pres["n_rats"] > 0).sum()) if not pres.empty else 0,
+            "cv_bins": int(len(cb)),
+            "cv_binutc": tuple(int(v) for v in cb["bin_utc"].tolist()),
+            "cv_occ": tuple(bool(v) for v in cb["cv_occupied"].tolist()),
+        }
+
+    sig_ns, sig_us, sig_ms = _signature("ns"), _signature("us"), _signature("ms")
+    if not (sig_ns == sig_us == sig_ms):
+        print("  FAIL resolution-variant binning (ns != us != ms):")
+        print(f"    ns={sig_ns}\n    us={sig_us}\n    ms={sig_ms}"); ok = False
+    elif sig_ns["grid_bins"] <= 1 or sig_ns["cv_bins"] <= 1:
+        print(f"  FAIL binning degenerate even at ns (should be many bins): {sig_ns}"); ok = False
+    else:
+        print(f"[resolution-invariance] ns==us==ms: {sig_ns['grid_bins']} grid bins, "
+              f"{sig_ns['cv_bins']} cv bins, {sig_ns['episodes']} episode(s), "
+              f"{sig_ns['pres_bins']} presence bins (datetime64[ms] no longer collapses to 1): ok")
 
     print("\nSELFTEST:", "PASS" if ok else "FAIL")
     return 0 if ok else 1
