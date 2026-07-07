@@ -54,7 +54,7 @@ git-ignored `outputs/`.
 - Clocks differ per device (camera/NVR local wallclock, WISER UTC, AWN local+offset) — treat any
   cross-modality alignment as **unverified** unless a shared event confirms it.
 
-## Five independent subsystems
+## Six independent subsystems
 
 There is no shared package or build across the repo — each subsystem stands alone with its own
 runtime, language, and conventions. Know which one you're in.
@@ -136,6 +136,15 @@ occupancy/ROI, nightly activity, weather merge, provenance.
   **no-ops**, and analyses run unchanged in inches. QC gates `confirmed`: scale ≈ 2.54 cm/in,
   inlier residuals near the ~7 in jitter floor, negligible affine shear.
 - Raw data in `D:\Wiser\data\`; outputs (CSVs, plots, QC overlays) to `outputs/` (git-ignored).
+- **Before interpreting any WISER-derived behavior** (positions, speed/activity, proximity/social
+  distance, occupancy/ROI, nightly movement, route structure, daytime sleep-site, or any spatial
+  claim), follow the `.claude/skills/regime-aware-wiser-tracking/` skill — it separates the sensor
+  path (UWB jitter ~7 in, weather/wet-hay-wall signal dropout, unverified inch frame) from the animal
+  path (real movement), and points at the QC helpers. It auto-fires; run it explicitly with
+  `/regime-aware-wiser-tracking`. Its camera analog is `/regime-aware-cv-measurement`.
+- To **audit** a WISER analysis run's outputs (provenance completeness + error/QC stratification by
+  regime, before promoting a finding or re-tuning), dispatch the **`wiser-measurement-auditor`**
+  subagent (`.claude/agents/`) — read-only; it stratifies, classifies, and persists an audit report.
 
 ### `preprocessing/computer_vision/` — Field-PC CV pipeline "Stage 0" (Python, GPU)
 Turns Reolink footage into per-animal **(x, y) + ID in a shared field frame (cm)** plus
@@ -185,6 +194,16 @@ sleep/activity. No pose/keypoints. Tracking is per-camera, then transformed into
   `validate_shelter.py` is the ground-truth check: it prompts you for the true inside count + still/
   moving on random closed-footage samples (detector answer hidden), then reports accuracy **stratified
   by `view_quality`** and asserts the safety check that degraded/unusable bins never score `occupied_high_motion`.
+- **Before interpreting any CV-derived behavior** (shelter occupancy, rest/sleep proxy, detector
+  validation, counts, huddles, weather↔behavior, cross-day/camera comparison, or deciding what to
+  label next), follow the `.claude/skills/regime-aware-cv-measurement/` skill — it separates the
+  sensor path (glass fog/rain/treatment → view-quality artifacts) from the animal path (real
+  behavior) and points at the machine-readable regime artifacts. It auto-fires; run it explicitly
+  with `/regime-aware-cv-measurement`.
+- To **audit** a shelter CV output's measurement context (sidecar + per-row covariate completeness,
+  then error/regime stratification, before any relabel or retrain), dispatch the
+  **`cv-measurement-auditor`** subagent (`.claude/agents/`) — read-only; it stratifies, classifies,
+  and persists an audit report to `outputs/audit/`.
 
 ### `audio_analysis/` — environmental-audio feature pipeline (Python, field PC)
 Lightweight, **resumable** extraction of relative camera-mic level + band-limited soundscape indices
@@ -205,6 +224,26 @@ decode + discovery, `time_utils.py`, `features.py` level/spectral/scikit-maad in
 Uses its own `audio` conda env (see below). Filter valid rows with `valid_audio` (True only for
 `qc_flag == ok`); silent/`pre_mic_enable` windows skip the expensive spectral stage by design (NaN
 spectral/index values). See `audio_analysis/README.md`.
+
+### `episode_browser/` — researcher-facing behavioral-episode browser (Python, Streamlit)
+A light UI to inspect / filter / sort / annotate / export candidate **behavioral episodes**. It
+**consumes** episodes; it never produces or corrects tracks (that is the CV pipeline / SLEAP /
+idtracker.ai). **Status: prototype on synthetic messy data** — `generate_synthetic_episodes.py`
+fabricates the store; no real CV/WISER segmentation is wired in yet. Two load-bearing invariants:
+(1) **completeness is the product** — every segmented episode enters the store, and `lens_scores`
+(surprise/recurrence/…) only *filter and rank*, never gate what enters; (2) episodes are cut by
+change-points over a low-level **state model**, not by human categories — `zones`/`labels` are
+attached *after* the cut. Every episode records its `state_model_id` (registry in
+`state_models.yaml`); synthetic-cut episodes are marked ⚗️ and live in the **same** store as real
+ones, told apart only by that field. **The data layer is fully separated from the UI**: `app.py`
+renders only, all read/query/write logic is in `utils/` (`episode_io.py` Parquet/JSONL store — CSV
+is **lossy export only**, `duration_s` derived at load; `validation.py` incl. the zone-as-feature
+rule, `coverage.py`, `query.py` where absence ≠ zero, `annotations.py` append-only + blind-eval
+writers, `load_layout.py` read-only adapters onto the canonical repo configs). Carries the repo's
+caveats: the WISER field map is drawn in the **native inch offset frame, explicitly UNVERIFIED vs
+the cm field frame** (never converted until georeference is confirmed); clocks are not assumed
+synced; `shortid` resolves to a name via `rat_identities.csv`. Own `requirements.txt`
+(pandas/numpy/pyyaml + pyarrow + streamlit), offline `selftest.py`. See `episode_browser/README.md`.
 
 ### Other `preprocessing/` dirs (stubs, no code yet)
 `data_merging/merge_cameras.py` is the CV merge step (above). `lfp_recording/` and
@@ -229,7 +268,12 @@ pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
 python verify_gpu.py
 python animal_tracking.py --channel CH05 --synthetic --out tracks\CH05_synth.csv   :: Stage-0 self-test, no detector
 ```
-ffmpeg/ffprobe are reused from `E:\Reolink_record\bin` (no install).
+ffmpeg/ffprobe are reused from `E:\Reolink_record\bin` (no install). On the **analysis PC** (RTX 3060),
+`run_validate.ps1` is the launcher for the interactive `validate_shelter.py` ground-truth check — it sets
+the transferred-footage paths + the `cv` env's ffmpeg and forwards its args (`.\run_validate.ps1 --date
+2026-06-30 --n 60`). Keep detector batches at `--batch 1`: batched inference at `imgsz>=960` trips a CUDA
+illegal-access / cuDNN crash on that GPU (so `train_detector.py` reports training's own final-val metrics
+rather than re-running `model.val()`).
 
 WISER analysis (`pip install pandas numpy matplotlib`):
 ```bash
@@ -256,6 +300,18 @@ python scripts\extract_audio_features.py --config configs\audio_analysis.analysi
 ```
 Extraction is resumable (skips files already in the CSV unless `--overwrite`).
 
+Episode browser (plain pip, no conda env):
+```bash
+cd episode_browser
+pip install -r requirements.txt          # pandas/numpy/pyyaml + pyarrow + streamlit
+python generate_synthetic_episodes.py    # fabricate the messy synthetic store -> git-ignored data/
+python selftest.py                        # offline data-layer check -> "PASS — data layer healthy"
+streamlit run app.py                      # launch the UI
+```
+Video preview needs ffmpeg (not a pip dep): found on `PATH`, via `EPISODE_BROWSER_FFMPEG`, or in
+`E:\`/`D:\Reolink_record\bin`. The Field map / Weather panels read the transferred WISER/AWN backups
+(`EPISODE_BROWSER_WISER_DIR` / `EPISODE_BROWSER_WEATHER_DIR` override the defaults).
+
 Recorder ops (PowerShell, field PC):
 ```powershell
 Get-Process ffmpeg | Measure-Object                     # are all 6 streams up?
@@ -268,6 +324,6 @@ Start-ScheduledTask -TaskName 'Reolink RTSP Recorder'
 There is no test suite, linter, or CI configured. Verification is per-subsystem: CV via the
 `--synthetic`/`--frame` self-tests above, audio via `selftest_features.py` (offline synthetic
 signals), WISER via the offline `selftest_georeference.py` / `selftest_daytime_sleep_site.py`
-(synthetic, exit-coded PASS/FAIL) plus the analysis scripts on real recordings, recorders via
-`recording_health_check.ps1 -SelfTest` (offline logic check), the continuity report, and the
-ffmpeg process count.
+(synthetic, exit-coded PASS/FAIL) plus the analysis scripts on real recordings, the episode browser
+via its offline `selftest.py` (data-layer check), recorders via `recording_health_check.ps1 -SelfTest`
+(offline logic check), the continuity report, and the ffmpeg process count.
