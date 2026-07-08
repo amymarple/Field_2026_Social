@@ -1,0 +1,198 @@
+# Data manifest — WISER UWB pilot analysis (free-moving + stationary baseline + weather)
+# See implementation_plan/2026-06-29-wiser-pilot-analysis.md and
+# change_log/2026-06-29-wiser-pilot-analysis.md.
+
+run_name: wiser_pilot_2026-06-29
+experiment: Field_2026_Social — 6 Long-Evans rats, outdoor 40x20 ft paddock
+timezone:
+  data_clock_utc: true              # WISER timestamps are Unix-ms UTC
+  local: EDT (UTC-04:00)            # field PC / weather local time
+units: inches                       # WISER native frame (repo convention); 1 in = 2.54 cm
+
+animals_tags:
+  note: shortid is a TAG id, not an animal name — kept anonymous (no mapping yet).
+  tags: [12378, 12380, 12386, 12395, 12407, 12409]
+
+datasets:
+
+  - name: free_moving_session
+    role: main behavioral dataset
+    path: D:\Wiser\data\1stcohort_2026.sqlite
+    table: Position
+    timestamp_field: timestamp
+    timestamp_unit: unix_ms
+    timestamp_clock: WISER acquisition PC (UTC)
+    status: LIVE / still being written at analysis time — counts are a runtime snapshot
+    snapshot_example: ~1.03M rows, 2026-06-28T23:20Z -> 2026-06-29T12:24Z (~13 h, one night)
+    sampling_rate_per_tag_hz: ~3.6-4.4 (from inter-sample gaps; bursty)
+    access: read-only (mode=ro + PRAGMA query_only=ON)
+    extra_columns_kept: [calculation_error, anchors_used, battery_voltage, reportid]
+
+  - name: stationary_baseline
+    role: "no-movement" precision floor (jitter)
+    path: D:\Wiser\data\tag_reports.sqlite
+    table: reports
+    timestamp_unit: unix_ms
+    coverage: 2026-06-21T18:11Z -> 2026-06-22T16:17Z (tags stationary in two clusters)
+    ground_truth: wiser_tracking_analysis/configs/fixed_position_ground_truth.csv (inches)
+    handling: last 10 min trimmed (tag-removal tail)
+    jitter_floor_observed: ~7.0 in median RMS (~18 cm)
+
+  - name: weather
+    role: exploratory environmental context
+    path: D:\weather_data\AWN-F8B3B78DEAC9-20260628-20260629.csv
+    source: Ambient Weather Network station F8B3B78DEAC9
+    logging_interval_min: 5
+    timestamp_field: Date
+    timestamp_clock: weather station local EDT (-04:00) -> converted to UTC
+    variables: [Outdoor Temperature C, Feels Like, Dew Point, Wind mph, Humidity %,
+                Pressure mmHg, Solar Radiation W/m2, UV Index]
+    sensor_placement_vs_paddock: UNKNOWN (flag)
+
+excluded:
+  - path: D:\Wiser\data\test20260622.csv
+    reason: overlapping CSV extract of tag_reports.sqlite (06-22) — would double-count.
+
+time_varying_structures:
+  - name: tunnel_1
+    note: A tunnel was present overnight (rats clustered there) and physically REMOVED at
+          07:00 local EDT on 2026-06-29 (= 11:00:00 UTC). Encoded as a time-bounded ROI
+          (valid_until 2026-06-29T11:00:00 UTC); occupancy is attributed to the tunnel only
+          before that instant — afterwards the same location is "open".
+  - name: refuge_4                       # "shelter 4", bottom-right small refuge
+    dig_started_local: 2026-07-03T01:00:00-04:00
+    removed_local: 2026-07-07T13:00:00-04:00
+    rats_involved: ">1 (collaborative, nightly)"
+    note: ONLY refuge_4 was used as a BURROW ENTRANCE (not sleep). >1 rat dug a hole under it
+          nightly from ~2026-07-03 01:00 EDT; hole discovered ~2026-07-06 13:00; the refuge was
+          physically REMOVED ~2026-07-07 13:00 EDT (anti-digging). Encoded as valid_until
+          2026-07-07T13:00:00-04:00 in wiser_rois.json (fixes there after that = "open"). During
+          the dig window (~07-03 -> 07-07) a tag in the burrow is BELOW the anchor plane, so WISER
+          UWB drops out -> refuge_4 occupancy under-counts / "time outside" over-counts,
+          WEATHER-INDEPENDENT (supersedes the earlier wet-hay-wall hypothesis). refuge_1/2/3 are
+          NORMAL refuges, unaffected. This WISER pilot dataset (2026-06-28 -> 06-30) PREDATES the
+          burrow, so its refuge_4 reads are not burrow-contaminated. See FIELD_OBSERVATIONS.md
+          Days 9-10.
+
+coordinate_frame:
+  description: WISER native inch frame with an OFFSET origin (x does not start at 0).
+  paddock_reference_in: {length_x: 480, width_y: 240}   # 40x20 ft, configurable reference only
+  georeferenced_to_paddock: false      # still UNVERIFIED (no confirmed transform yet)
+  georeferenced_to_cv_field_layout: false  # UNVERIFIED (preprocessing/computer_vision/configs/field_layout.json)
+  georeference_tooling: wiser_tracking_analysis/scripts/georeference_wiser.py
+                        (WISER-inch -> field-cm similarity fit; see
+                        implementation_plan/2026-07-01-wiser-georeferencing.md)
+  georeference_status: >
+    Tooling ready and self-tested; flags stay false until a pole-dwell survey
+    (configs/wiser_georef_survey.csv) is run and QC passes, which writes a
+    CONFIRMED configs/wiser_to_field_transform.json. Fit residuals bottom out at
+    the ~7 in jitter floor, not zero.
+  rois_boundary: wiser_tracking_analysis/configs/wiser_rois.json
+                 (provisional placeholder until placed via scripts/place_wiser_rois.py;
+                 a confirmed transform yields a surveyed boundary via
+                 wiser_analysis_utils.verified_boundary_in_wiser)
+
+alignment:
+  wiser_to_weather: wall-clock UTC only; UNVERIFIED to better than ~5 min (independent station clock).
+  wiser_to_cv_shelter: >
+    WISER (Unix-ms UTC) vs CV shelter cams (CH05/CH06; LOCAL NVR wallclock from the recording
+    filename). Cross-validation (change_log/2026-07-02-sleep-site-cv-crossval.md) found the best
+    occupancy-agreement lag at ~0 s residual on top of the +4 h nominal (EDT = UTC-4), i.e. the
+    NVR clock ~= EDT to within the 300 s scan grid. Still UNVERIFIED (inferred from occupancy
+    co-variation, not a shared event). Nominal ROI<->camera mapping confirmed (house_1<->CH05,
+    house_2<->CH06; joint kappa 0.66).
+  wiser_to_other_devices: not attempted.
+
+derived_analyses:
+  - name: leader_follower_route_following
+    added: 2026-06-29
+    plan: implementation_plan/2026-06-29-leader-follower-analysis.md
+    note: Time-lagged path-reuse following (NOT proximity). No new raw data; reuses
+          free_moving_session (positions) + stationary_baseline (grid moving threshold + jitter floor).
+    definition: B follows A if B reaches A's earlier position after a positive lag while both move
+                with aligned heading (cosine > 0.5) and distance < R.
+    params:
+      grid_hz: 1                       # resample_common_grid median position
+      smooth_s: 5                      # rolling-median position smoothing
+      lags_s: [1, 30]
+      moving_threshold_inps: ~6.31     # p99 grid speed of the STATIONARY baseline (runtime)
+      R_in: 24                         # max(3 x jitter_floor ~7 in, 24 in)
+      cos_threshold: 0.5
+      null_model: circular shift of the follower by random 5-20 min; n_shuffles=100
+    interpretation: CANDIDATE route-following only; shared-corridor vs leader-follower decided by the
+                    null model; R always compared to the stationary jitter floor.
+    outputs: [following_scores.csv, following_events.csv, figures/J1..J6]
+
+  - name: route_structure
+    added: 2026-06-29
+    plan: implementation_plan/2026-06-29-route-structure-analysis.md
+    note: Do rats reuse the same corridors/routes? Cleaned points only; pooled 9-11pm EDT across both
+          nights (whole trunk, not hour-binned). No new raw data.
+    window: {clock_local: [21, 23], nights: [2026-06-28, 2026-06-29], pooled: true}
+    params:
+      occupancy_bin_in: 4
+      corridor_percentile: 80          # smoothed occupancy >= p80 -> corridor mask
+      skeleton: Zhang-Suen thinning (numpy; skimage unavailable)
+      moving_threshold_inps: ~12.5     # p99 stationary smoothed speed (runtime)
+      nodes: user ROIs (wiser_rois.json); infer_candidate_zones fallback
+    artifact_check: stationary fixed-position baseline (tag_reports.sqlite) occupancy + straightness;
+                    flag if stationary straightness >= free.
+    interpretation: CANDIDATE route structure only. Corridors shared + robust to QC. Straightness is
+                    REAL movement (displacement-matched jitter null: 100% of free bouts exceed the
+                    stationary jitter displacement; the blunt baseline-median flag was a small-
+                    displacement artifact). Reuse is shared-environment-driven, not individual memory
+                    (cross-rat edge cosine 0.88 > within-rat night-to-night 0.35); thigmotaxis ~0.4%,
+                    corridors interior (0% perimeter); only ~27% corridor IoU across the two nights.
+                    Sova/12409 present night 1 only (deceased, cutoff applied).
+    refinements_2026-06-30: [displacement-matched straightness null, within-rat self route reuse
+                            (memory proxy), thigmotaxis/edge-effect control]
+    driver: wiser_tracking_analysis/scripts/analyze_route_structure.py
+    outputs: [route_reuse_index.csv, occupancy_similarity.csv, straightness_summary.csv,
+              straightness_robustness.csv, edge_usage_similarity.csv, shared_edges.csv,
+              baseline_comparison.csv, straightness_vs_jitter.csv, self_route_reuse.csv,
+              thigmotaxis.csv, figures/RS1..RS11, route_verdict.txt]
+
+  - name: nightly_progression
+    added: 2026-06-30
+    plan: implementation_plan/2026-06-30-nightly-progression.md
+    note: Per-rat nocturnal movement across three nights (21:00-24:00 EDT) to separate novelty
+          habituation from rain. Rate-normalized + paired (5 rats, Sova/12409 removed). No new raw data.
+    window: {clock_local: [21, 24], nights: [2026-06-28, 2026-06-29, 2026-06-30], paired: true}
+    primary_metric: active_distance_m_per_valid_hour   # active path above noise floor / valid tracked h
+    weather_sources:
+      - D:\weather_data\AWN-F8B3B78DEAC9-20260628-20260629.csv   # 6/28 dry-confirmed; ends 6/29 07:50
+      - D:\weather_data\AWN-F8B3B78DEAC9-20260630-20260701.csv   # 6/30 (17:20 burst); evening sparse
+    rain_facts: 6/30 afternoon 17:20-17:55 (station, peak 10.2 mm/hr) wets ground whole night;
+                in-window ~22:30-22:50 observed (station sparse, recorded 0); 6/29 evening weather unknown.
+    rain_test: per-rat difference-in-differences on the 22:30 split, transition buffers 0 and 20 min.
+    interpretation: EXPLORATORY/candidate (3 nights, n=5 paired). Candidate habituation 6/28->6/29
+                    -50% (both dry); 6/30 WET-ground confounded with habituation (no further drop);
+                    in-window rain DiD ~0 (no acute suppression). Jitter-inflated distances (paired
+                    only); WISER frame unverified.
+    driver: wiser_tracking_analysis/scripts/analyze_nightly_progression.py
+    outputs: [nightly_rates.csv, night_split_rates.csv, rain_did.csv, weather_night_summary.csv,
+              nightly_qc.csv, nightly_conclusion.txt, figures/N1..N5]
+
+  - name: nightly_behavior_social
+    added: 2026-06-30
+    plan: implementation_plan/2026-06-30-nightly-behavior.md
+    note: Same 3-night 9pm-12am 5-rat paired core extended to behavior/social/structure. No new raw data.
+    home_definition: ROI type 'refuge' (2 houses + 4 refuges); water/food = resource; tunnel_1 6/28 only.
+    dimensions: [home/resource use + home<->open transitions, outside(open) movement rate,
+                 social cohesion (pairwise distance/proximity/clustering), shared-space occupancy
+                 similarity (leave-one-out), exploration-graph structure (+night-to-night similarity),
+                 space-use geometry (coverage/concentration/dispersion/corridor)]
+    interpretation: EXPLORATORY/candidate (3 nights, n=5 paired). Candidate settling (home 0.07->0.13,
+                    resource up, outside movement 246->142 m/valid-hr down); exploration graph edges
+                    37->28 (simplify) + night-to-night edge cosine 0.50->0.97 (stabilize); hub
+                    open->house_1 (wet night); shared-space similarity 0.84->0.65->0.72 (individualize
+                    then reconverge); <=1m proximity reliable. 6/30 wet-ground confounded w/ habituation.
+    driver: wiser_tracking_analysis/scripts/analyze_nightly_behavior.py
+    outputs: [nightly_roi_use.csv, nightly_movement_by_cat.csv, nightly_social.csv,
+              nightly_graph_structure.csv, nightly_graph_similarity.csv, nightly_geometry.csv,
+              nightly_behavior_conclusion.txt, figures/B1..B9]
+
+outputs:
+  location: D:\Wiser_plot\wiser_pilot_output_YYYYMMDD_HHMM\  (off C:, off git, never overwrites)
+  generated_by: wiser_tracking_analysis/notebooks/wiser_pilot_analysis.ipynb
+                (logic in src/wiser_analysis_utils.py)

@@ -216,3 +216,59 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# WISER hourly position/occupancy PNGs are written off-repo (default D:\Wiser_plot)
+# and never committed. This is only a safety net in case --output is pointed back
+# into the repo; the fixed-position result CSVs under outputs/ stay tracked.
+wiser_tracking_analysis/outputs/occupancy/
+
+# Environmental-audio pipeline: extracted feature CSVs + metadata + plots are derived
+# data (copied to the main analysis computer), never committed.
+audio_analysis/outputs/
+
+# --- Large / derived artifacts: never commit (keep only source scripts) ---
+# Model weights (YOLO, torch, onnx, tensorrt): downloadable/reproducible, not source.
+*.pt
+*.pth
+*.onnx
+*.engine
+*.weights
+
+# CV pipeline runtime artifacts: training runs and datasets are derived/large —
+# only the source .py scripts belong in git.
+preprocessing/computer_vision/runs/
+preprocessing/computer_vision/dataset/
+
+# WISER: all derived outputs (cleaned CSVs, occupancy/scatter PNGs, layout images).
+# The small tracked result summaries under outputs/ are kept explicitly (they are
+# added before this rule bites, or force-added).
+wiser_tracking_analysis/outputs/*.png
+wiser_tracking_analysis/outputs/*_cleaned.csv
+
+# --- Recording / capture subsystem: authoritative source is the SEPARATE repo
+#     amymarple/Field_2026_Social_Recording (indexed in observation.md). This ignore keeps
+#     NEW capture files out of this ANALYSIS repo; the already-tracked reolink_record/ +
+#     reolink_export/ are left in place, unmodified.
+#     ⚠️ DO NOT `git rm` (or otherwise remove/untrack) the recording folders. On the RECORDING
+#        PC the recorder RUNS FROM this folder — untracking/removing it can STOP recording.
+#        Leave the recording files exactly as they are; never git-rm the recording folder.
+reolink_record/
+reolink_export/
+
+# --- Large / derived analysis outputs: regenerated from raw data, never committed ---
+wiser_tracking_analysis/outputs/*
+!wiser_tracking_analysis/outputs/fixed_position_summary.csv
+preprocessing/computer_vision/outputs/
+
+# Large media / databases (raw + derived) — never belong in git
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.sqlite
+*.sqlite3
+*.db
+*.csv.gz
+*.zip
+*.7z
+*.tar

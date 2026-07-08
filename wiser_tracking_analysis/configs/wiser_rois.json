@@ -1,0 +1,124 @@
+{
+  "_README": "WISER ROIs in the WISER native inch frame (offset origin; UNVERIFIED vs physical paddock). Written by place_wiser_rois.py. Rect house size from field_layout.json shelters. NOTE (2026-07-07): ONLY refuge_4 ('shelter 4') was used as a BURROW ENTRANCE (>1 rat digging nightly from ~2026-07-03T01:00 EDT; hole found under it) and was REMOVED ~13:00 EDT 2026-07-07 (valid_until set; fixes there after that = 'open'). refuge_1/2/3 are NORMAL refuges (house area), unaffected and still present. Actual sleep shelters are house_1/house_2. WISER analysis data 06-28->06-30 predates the burrow. See FIELD_OBSERVATIONS.md Day 10 + change_log/2026-07-07-shelter4-burrow-removed.md.",
+  "units": "inches",
+  "frame": "WISER native (offset origin)",
+  "boundary": {
+    "rect": [
+      247.14668362473498,
+      786.0161669233377,
+      542.3121771246206,
+      888.2706564946614
+    ],
+    "confirmed": true
+  },
+  "rois": [
+    {
+      "name": "house_1",
+      "type": "refuge",
+      "shape": "rect",
+      "x": 411.45781532419653,
+      "y": 718.6104204322621,
+      "confirmed": true,
+      "width_in": 36.389727580524614,
+      "height_in": 26.594197988203135,
+      "orientation_deg": 90.0
+    },
+    {
+      "name": "house_2",
+      "type": "refuge",
+      "shape": "rect",
+      "x": 613.5763025540327,
+      "y": 717.3393280943602,
+      "confirmed": true,
+      "width_in": 36.389727580524614,
+      "height_in": 26.594197988203135,
+      "orientation_deg": 90.0
+    },
+    {
+      "name": "refuge_1",
+      "type": "refuge",
+      "shape": "circle",
+      "x": 305.96773280970314,
+      "y": 810.610420432262,
+      "confirmed": true,
+      "radius_in": 11.0
+    },
+    {
+      "name": "refuge_2",
+      "type": "refuge",
+      "shape": "circle",
+      "x": 734.5394086439047,
+      "y": 826.5431100197696,
+      "confirmed": true,
+      "radius_in": 10.0
+    },
+    {
+      "name": "refuge_3",
+      "type": "refuge",
+      "shape": "circle",
+      "x": 296.3089115919959,
+      "y": 608.4785756391761,
+      "confirmed": true,
+      "radius_in": 10.0
+    },
+    {
+      "name": "refuge_4",
+      "type": "refuge",
+      "shape": "circle",
+      "x": 723.6740294688894,
+      "y": 635.9336149314739,
+      "confirmed": true,
+      "radius_in": 10.0,
+      "valid_until": "2026-07-07T13:00:00-04:00",
+      "note": "'shelter 4' — the ONLY refuge used as a burrow entrance (>1 rat digging nightly from ~2026-07-03T01:00 EDT; hole found under it 2026-07-07 ~13:00); UWB below-plane dropout regime 2026-07-03->2026-07-07; refuge REMOVED 2026-07-07 13:00 EDT (anti-digging). refuge_1/2/3 are NORMAL refuges, unaffected. NOTE: WISER analysis data 06-28->06-30 PREDATES the burrow."
+    },
+    {
+      "name": "water_1",
+      "type": "water",
+      "shape": "circle",
+      "x": 503.5887347733162,
+      "y": 871.926212179744,
+      "confirmed": true,
+      "radius_in": 8.0
+    },
+    {
+      "name": "water_2",
+      "type": "water",
+      "shape": "circle",
+      "x": 493.5638703347493,
+      "y": 576.5089921415404,
+      "confirmed": true,
+      "radius_in": 8.0
+    },
+    {
+      "name": "food_1",
+      "type": "food",
+      "shape": "circle",
+      "x": 412.4720982314125,
+      "y": 718.4785756391761,
+      "confirmed": true,
+      "radius_in": 8.0
+    },
+    {
+      "name": "food_2",
+      "type": "food",
+      "shape": "circle",
+      "x": 611.7307583500307,
+      "y": 718.4785756391761,
+      "confirmed": true,
+      "radius_in": 8.0
+    },
+    {
+      "name": "tunnel_1",
+      "type": "tunnel",
+      "shape": "rect",
+      "x": 725.8649498312215,
+      "y": 728.4117547274096,
+      "confirmed": true,
+      "width_in": 57.75886160858605,
+      "height_in": 14.439715402146513,
+      "orientation_deg": 270.0,
+      "valid_until": "2026-06-29T07:00:00-04:00"
+    }
+  ]
+}

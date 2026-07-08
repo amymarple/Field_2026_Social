@@ -1,0 +1,10 @@
+# pip fallback (if not using the conda environment.yml).
+# Decoding uses the existing ffmpeg at E:\Reolink_record\bin\ffmpeg.exe (not a pip dep).
+numpy
+scipy
+pandas
+matplotlib
+librosa
+soundfile
+scikit-maad
+pyyaml

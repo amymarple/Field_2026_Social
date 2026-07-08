@@ -1,0 +1,205 @@
+{
+  "_comment": "Single source of truth for the field geometry + camera mounts. EDIT to match the real site. Coordinates in CENTIMETRES. Frame: origin (0,0) at corner pole A0; +x along the 40 ft LENGTH (0..1219.2); +y across the 20 ft WIDTH (0..609.6). calibration.py reads each landmark's coords FROM HERE so you only click in the image.",
+  "units": "cm",
+  "ft_to_cm": 30.48,
+  "field_cm": {
+    "x_len_40ft": 1219.2,
+    "y_width_20ft": 609.6
+  },
+  "wall_height_cm": 97.79,
+  "_wall_note": "Paddock wall is 38.5 in = 97.79 cm tall. A '<pole>_top' landmark = that pole's (x,y) at z=97.79 (where the pole crosses the wall top). Used by 'pnp' cameras (CH03/CH04) that see too few/collinear ground poles - clicking each pole at the BASE (z=0) and the WALL-TOP crossing (z=97.79) gives non-coplanar points to solve full camera pose.",
+  "_poles_note": "15 poles on a 10 ft (304.8 cm) grid: 3 ROWS across the 20 ft width (A y=0, B y=304.8, C y=609.6) x 5 COLUMNS along the 40 ft length (0..4 at x=0,304.8,609.6,914.4,1219.2). B = centre row (length-wise centreline).",
+  "poles": {
+    "A0": [
+      0.0,
+      0.0
+    ],
+    "A1": [
+      304.8,
+      0.0
+    ],
+    "A2": [
+      609.6,
+      0.0
+    ],
+    "A3": [
+      914.4,
+      0.0
+    ],
+    "A4": [
+      1219.2,
+      0.0
+    ],
+    "B0": [
+      0.0,
+      304.8
+    ],
+    "B1": [
+      304.8,
+      304.8
+    ],
+    "B2": [
+      609.6,
+      304.8
+    ],
+    "B3": [
+      914.4,
+      304.8
+    ],
+    "B4": [
+      1219.2,
+      304.8
+    ],
+    "C0": [
+      0.0,
+      609.6
+    ],
+    "C1": [
+      304.8,
+      609.6
+    ],
+    "C2": [
+      609.6,
+      609.6
+    ],
+    "C3": [
+      914.4,
+      609.6
+    ],
+    "C4": [
+      1219.2,
+      609.6
+    ]
+  },
+  "_markers_note": "TEMPORARY ground markers (z=0) placed for CH03/CH04 calibration on the grass, from the hand sketch. 50 in = 127.0 cm, 15 in = 38.1 cm. M* = CH03 (x=0 end), referenced off pole B0=(0,304.8): M3 is 50in into the field (+x) from B0; M2/M4 are 50in toward A/C (-/+y); M6 is 15in past M3 (+x). N* = CH04 (x=1219.2 end), referenced off B4=(1219.2,304.8) with +x flipped (markers go toward field centre). M1/M5/N1/N5 (edge markers) are ESTIMATES at x=marker-row depth on the side walls - correct if measured. Remove this block after calibrating; markers are not permanent field structure.",
+  "markers": {
+    "M1": [127.0, 0.0],
+    "M2": [127.0, 177.8],
+    "M3": [127.0, 304.8],
+    "M4": [127.0, 431.8],
+    "M5": [127.0, 609.6],
+    "M6": [165.1, 304.8],
+    "N1": [1092.2, 609.6],
+    "N2": [1092.2, 431.8],
+    "N3": [1092.2, 304.8],
+    "N4": [1092.2, 177.8],
+    "N5": [1092.2, 0.0],
+    "N6": [1054.1, 304.8]
+  },
+  "shelters": {
+    "_comment": "Each shelter footprint is 24-5/8 in x 18 in = 62.55 x 45.72 cm. Set center_cm (and orientation_deg if rotated) - easiest via place_cameras.py. Corners are derived. Anchors the nadir cams CH5/CH6.",
+    "left": {
+      "size_cm": [
+        62.55,
+        45.72
+      ],
+      "center_cm": [
+        342.6,
+        304.8
+      ],
+      "orientation_deg": 90.0
+    },
+    "right": {
+      "size_cm": [
+        62.55,
+        45.72
+      ],
+      "center_cm": [
+        881.5,
+        302.4
+      ],
+      "orientation_deg": 90.0
+    }
+  },
+  "camera_mounts": {
+    "_comment": "Keys = RECORDING folders CH01..CH08. CH01..CH06 = original mounts (pos_cm = ground position/pole; height_cm ~ 8 ft; mapping 'poly' Duo3 panos / 'pnp' RLC-1212A side cams / 'homography' RLC-520A shelter cams). CH07/CH08 = interior in-house cameras added 2026-07-07 (EmpireTech 4MP pinhole) imaging DIRECTLY inside house_1/house_2 respectively -> glass-fog-immune, NOT through the CH05/CH06 IR glass; calibration/zones TBD (view='interior_in_house'). Placeholders - set with place_cameras.py.",
+    "CH01": {
+      "model": "Duo3",
+      "pole": "B1",
+      "pos_cm": [
+        599.8,
+        148.7
+      ],
+      "height_cm": 243.84,
+      "aim": "deg 86.0",
+      "mapping": "poly"
+    },
+    "CH02": {
+      "model": "Duo3",
+      "pole": "B3",
+      "pos_cm": [
+        632.8,
+        459.6
+      ],
+      "height_cm": 243.84,
+      "aim": "deg 262.3",
+      "mapping": "poly"
+    },
+    "CH03": {
+      "model": "RLC-1212A",
+      "pole": "B1",
+      "pos_cm": [
+        304.8,
+        304.8
+      ],
+      "height_cm": 243.84,
+      "aim": "deg 180.0",
+      "mapping": "poly",
+      "calib_landmarks": ["A0", "B0", "C0", "M1", "M2", "M3", "M4", "M5", "M6"]
+    },
+    "CH04": {
+      "model": "RLC-1212A",
+      "pole": "B3",
+      "pos_cm": [
+        914.4,
+        304.8
+      ],
+      "height_cm": 243.84,
+      "aim": "deg 0.0",
+      "mapping": "poly",
+      "calib_landmarks": ["A4", "B4", "C4", "N1", "N2", "N3", "N4", "N5", "N6"]
+    },
+    "CH05": {
+      "model": "RLC-520A",
+      "shelter": "left",
+      "height_cm": 243.84,
+      "aim": "nadir",
+      "mapping": "homography",
+      "pos_cm": [
+        343.8,
+        304.8
+      ]
+    },
+    "CH06": {
+      "model": "RLC-520A",
+      "shelter": "right",
+      "height_cm": 243.84,
+      "aim": "nadir",
+      "mapping": "homography",
+      "pos_cm": [
+        883.9,
+        302.4
+      ]
+    },
+    "CH07": {
+      "model": "EmpireTech 4MP pinhole (1/2.7\" CMOS, fixed-focal, PoE)",
+      "shelter": "left",
+      "view": "interior_in_house",
+      "images": "house_1 (the shelter CH05 views from nadir THROUGH the IR glass)",
+      "aim": "interior",
+      "mapping": "TBD",
+      "added": "2026-07-07T14:38-04:00",
+      "_note": "Direct in-house view; does NOT look through the CH05 IR glass -> glass-fog-immune. Calibration/zones/resolution/mount TBD; not yet processed. Failure modes are pinhole/close-range/IR-lighting, NOT the IR-glass fog regime."
+    },
+    "CH08": {
+      "model": "EmpireTech 4MP pinhole (1/2.7\" CMOS, fixed-focal, PoE)",
+      "shelter": "right",
+      "view": "interior_in_house",
+      "images": "house_2 (the shelter CH06 views from nadir THROUGH the IR glass)",
+      "aim": "interior",
+      "mapping": "TBD",
+      "added": "2026-07-07T14:38-04:00",
+      "_note": "Direct in-house view; does NOT look through the CH06 IR glass -> glass-fog-immune. Calibration/zones/resolution/mount TBD; not yet processed. Failure modes are pinhole/close-range/IR-lighting, NOT the IR-glass fog regime."
+    }
+  }
+}

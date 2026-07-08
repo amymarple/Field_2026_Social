@@ -1,0 +1,27 @@
+# Conda environment for the lightweight environmental-audio feature pipeline.
+#
+# Create (conda not on PATH on the field PC -> use the miniforge condabin):
+#   & "C:\Users\Cornell\miniforge3\condabin\conda.bat" env create -f environment.yml
+#   conda activate audio
+# or call python by full path:
+#   C:\Users\Cornell\miniforge3\envs\audio\python.exe
+#
+# Decoding uses the EXISTING ffmpeg at E:\Reolink_record\bin\ffmpeg.exe (not installed here).
+name: audio
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - librosa
+  - pyyaml
+  - ffmpeg          # analysis-PC decode (field PC uses its own E:\...\bin\ffmpeg.exe)
+  - pip
+  - pip:
+      # soundfile is 'pysoundfile' on conda-forge and is pulled in by librosa anyway;
+      # scikit-maad ships the ecoacoustic indices (ACI/BI/NDSI/ADI). Both install cleanly from PyPI.
+      - soundfile
+      - scikit-maad

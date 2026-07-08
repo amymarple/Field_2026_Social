@@ -1,0 +1,9 @@
+# Episode Browser theme — matches the dashboard mockup (blue accents, light surfaces).
+# Streamlit reads .streamlit/config.toml relative to the working directory, so this
+# applies when you run from the episode_browser/ folder (the documented location).
+[theme]
+primaryColor = "#2563eb"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f1f5f9"
+textColor = "#0f172a"
+font = "sans serif"

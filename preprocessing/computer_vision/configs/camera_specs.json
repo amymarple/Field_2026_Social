@@ -1,0 +1,28 @@
+{
+  "_comment": "Reolink camera specs (from manufacturer pages, 2026). For reference + future lens-intrinsic/undistortion work. fov in degrees.",
+  "Duo3": {
+    "full_model": "Reolink Duo 3 PoE",
+    "resolution": [7680, 2160],
+    "fps": 20,
+    "fov_h_deg": 180, "fov_v_deg": 55,
+    "focal_mm": 2.8, "aperture": "F1.6", "sensor": "1/2.7\" (dual)",
+    "note": "Dual-lens stitched 180 deg panorama; strong non-linear distortion -> use 'poly'/TPS mapping. Stream may be coded 2160x7680 (rotated).",
+    "channels": ["CH01", "CH02"]
+  },
+  "RLC-1212A": {
+    "full_model": "Reolink RLC-1212A",
+    "resolution": [4096, 2784],
+    "fov_h_deg": 107, "fov_v_deg": 66,
+    "focal_mm": 2.8, "aperture": "F1.6", "sensor": "1/1.8\"",
+    "note": "Wide rectilinear bullet; moderate barrel distortion at edges; homography OK for ground plane.",
+    "channels": ["CH03", "CH04"]
+  },
+  "RLC-520A": {
+    "full_model": "Reolink RLC-520A",
+    "resolution": [2560, 1920],
+    "fov_h_deg": 80, "fov_v_deg": 60,
+    "focal_mm": 4.0, "aperture": "F2.0", "sensor": "1/2.7\"",
+    "note": "Dome; 4mm=80degH (2.8mm variant=100degH). Mounted ~nadir over a shelter; homography from the shelter rectangle gives direct cm/pixel.",
+    "channels": ["CH05", "CH06"]
+  }
+}

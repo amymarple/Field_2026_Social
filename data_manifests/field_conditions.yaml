@@ -1,0 +1,73 @@
+# Field conditions log — weather / visibility windows that degrade the video analysis.
+# Running file (append new observations by date). Analysis (CV: shelter_sleep, occupancy,
+# detection; also audio) should EXCLUDE or CAVEAT these windows:
+#   fog  -> low visibility -> detection unreliable, ROI-motion noisy.
+#   rain -> raindrops / water motion in the ROI -> FALSE "occupied-high-motion"; detection degraded.
+#
+# SCOPE: this file holds TRANSIENT WEATHER windows (fog/rain), consumed by shelter_sleep.py. PERSISTENT
+# equipment / optical regimes (the CH05/CH06 IR-glass tape / lift / anti-fog-film changes) live separately
+# in data_manifests/glass_treatments.yaml (a covariate; not consumed by code yet).
+#
+# CLOCK CAVEAT: times below are as OBSERVED by the user (local wall clock). The Reolink on-screen
+# (OSD) clock runs ~1 h BEHIND the recording FILENAMES on this rig — when mapping a window to
+# specific hourly files, reconcile against the filename timestamps (see reolink_record notes).
+
+conditions:
+  - date: 2026-06-30
+    start: "03:00"
+    end:   "07:00"
+    type:  fog
+    channels: [CH05]        # noted on CH05; fog is field-wide so likely affects CH06 too
+    affects: [detection, motion]
+    note: "foggy"
+
+  - date: 2026-06-30
+    start: "17:25"
+    end:   "17:50"
+    type:  rain
+    channels: all
+    affects: [detection, motion]
+    note: "afternoon rain — expect false occupied-high-motion from drops/water"
+
+  - date: 2026-06-30
+    start: "22:30"
+    end:   "22:55"
+    type:  rain
+    channels: all
+    affects: [detection, motion]
+    note: "rain"
+
+  - date: 2026-06-30
+    start: "23:00"
+    end:   null             # open-ended / ongoing at time of logging
+    type:  fog
+    channels: all
+    affects: [detection, motion]
+    note: "foggy from 23:00 onward — set an end time when it clears"
+
+  - date: 2026-07-03
+    start: "04:00"
+    end:   "06:00"
+    type:  fog
+    channels: [CH05, CH06]
+    affects: [detection, motion]
+    note: "pre-dawn fog on the CH05/CH06 shelter IR glass, rats hardly visible (FIELD_OBSERVATIONS Day 6)"
+
+  - date: 2026-07-03
+    start: "21:50"
+    end:   null             # continuous overnight into 07-04 (see next entry); null -> end of 07-03
+    type:  fog
+    channels: [CH05, CH06]
+    affects: [detection, motion]
+    note: "evening rain, then fog on the shelter IR glass from ~21:50, continuous overnight into 07-04.
+      Post-film regime (bare_seated_post_film): film removal may have damaged the original anti-fog coating,
+      so it fogs worse than the pre-intervention bare glass (see glass_treatments.yaml)."
+
+  - date: 2026-07-04
+    start: "00:00"
+    end:   "09:30"
+    type:  fog
+    channels: [CH05, CH06]
+    affects: [detection, motion]
+    note: "overnight fog continued from 07-03 ~21:50; cleared ~09:30. Long (~11.5 h) view-degradation
+      window — 'empty'/'no motion' here is fog-obscured, not true absence/stillness."
