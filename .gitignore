@@ -245,12 +245,13 @@ preprocessing/computer_vision/dataset/
 wiser_tracking_analysis/outputs/*.png
 wiser_tracking_analysis/outputs/*_cleaned.csv
 
-# --- Recording / capture subsystem: the authoritative source is now the SEPARATE repo
-#     amymarple/Field_2026_Social_Recording (indexed in observation.md). Keep the capture
-#     tooling out of this ANALYSIS repo so no recording file is modified/committed here.
-#     NOTE: reolink_record/ + reolink_export/ are still TRACKED from earlier; this ignore
-#     only stops NEW recording files. To fully drop them here (files stay on disk), run once:
-#       git rm -r --cached reolink_record reolink_export
+# --- Recording / capture subsystem: authoritative source is the SEPARATE repo
+#     amymarple/Field_2026_Social_Recording (indexed in observation.md). This ignore keeps
+#     NEW capture files out of this ANALYSIS repo; the already-tracked reolink_record/ +
+#     reolink_export/ are left in place, unmodified.
+#     ⚠️ DO NOT `git rm` (or otherwise remove/untrack) the recording folders. On the RECORDING
+#        PC the recorder RUNS FROM this folder — untracking/removing it can STOP recording.
+#        Leave the recording files exactly as they are; never git-rm the recording folder.
 reolink_record/
 reolink_export/
 
