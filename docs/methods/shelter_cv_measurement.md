@@ -144,10 +144,35 @@ Verified example (2026-07-02): CH05 precision ≈ 1.00 / recall ≈ 0.49 (WISER 
 precision ≈ 0.99 / recall ≈ 0.67 (presence 0.75). CV recall is ~0.50–0.60 flat across every stratum
 (clear ≈ degraded, low ≈ high fog-risk) → the gap is a coverage/definition limit, not fog.
 
+## 7. CH07/CH08 — glassless in-house cameras (added 2026-07-07)
+
+On **2026-07-07 ~14:38 EDT** two **EmpireTech 1/2.7″ 4MP fixed-focal pinhole PoE** cameras were mounted
+**inside the two houses**, imaging the interior **directly** (**CH07 = inside CH05's house,
+CH08 = inside CH06's house**). They have **no IR glass in the optical path**, so the entire
+**sensor path** above — glass fog / condensation / rain / glare / anti-fog film (`glass_regime`,
+`fog_risk`, view-quality degradation) — **does not apply to them**. They are the intended
+**fog-free interior ground truth / cross-check** for the through-glass CH05/CH06 measurement:
+
+- Because CH07/CH08 do not fog, they can test whether a CH05/CH06 "empty / no-motion / low-count"
+  bin is a **real** absence or a **glass-view artifact** — the direct check the through-glass
+  pipeline could never make internally.
+- **Not yet integrated:** no calibration into the field frame (`field_coords.py` channel→model
+  mapping), not wired into `shelter_sleep.py`/zones, distinct optics from the RLC-520A nadir cams.
+  Data begins **~2026-07-07 14:38**; there is **nothing before that**, so they cannot back-fill the
+  06-28→07-07 through-glass record — they only forward-validate.
+- The **wall-edge blind-zone** and **huddle-compression** lower-bound causes (§5) may or may not
+  persist under the in-house viewpoint — to be checked once CH07/CH08 are calibrated.
+
+See [`FIELD_OBSERVATIONS.md`](../../FIELD_OBSERVATIONS.md) Day 10 (2026-07-07) for the field-log entry.
+
 ## See also
 
 - [`shelter_failure_modes.md`](shelter_failure_modes.md) — the catalogue of known failure modes with
   evidence and classification.
+- [`context_debug_map`](../../.claude/skills/regime-aware-cv-measurement/references/context_debug_map.md)
+  (+ [`.yaml`](../../.claude/skills/regime-aware-cv-measurement/references/context_debug_map.yaml), canonical)
+  — the executable routing layer: observation / configuration change → failure mode to test → diagnostic
+  → allowed action → forbidden interpretation.
 - [`regime-aware-cv-measurement`](../../.claude/skills/regime-aware-cv-measurement/SKILL.md) skill and its
   [`references/regime_artifacts.md`](../../.claude/skills/regime-aware-cv-measurement/references/regime_artifacts.md).
 - `change_log/` — history/provenance (this doc is the current-state summary; the change logs are the

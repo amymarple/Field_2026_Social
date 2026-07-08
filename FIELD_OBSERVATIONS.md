@@ -118,20 +118,25 @@ Source of truth for identity + validity: `wiser_tracking_analysis/configs/rat_id
   fighting-event rate co-varies with storm onset; model weather as an explicit covariate before any
   habituation claim.
 
-### Day 4 — 2026-07-01 · obs — · Equipment ✅ OK · sunny/humid high 36 °C; thunderstorm/rain ~19:45
+### Day 4 — 2026-07-01 · obs HC · Equipment ✅ OK · sunny/humid high 36 °C; thunderstorm/rain ~19:45
 
 - **Observed field events:** 12:48 all concentrated in a single house, ~no motion,
   quiescent/possibly sleeping (fog obscured the view); 14:35 two rats hide under the water tower;
-  16:00 IR glass lifted ~1 cm to reduce fog; rain 19:45; fog 21:00; nesting on the door entries on
-  **CH05 but not CH06**.
+  16:00 IR glass lifted ~1 cm to reduce fog; rain ~19:45; fog ~21:00 (fogging had already begun the
+  prior night ~23:00, very humid); nesting on the door entries on **CH05 but not CH06**. After the
+  rain, a **fast in-and-out "checking" behavior** at the shelter entrance (looks like testing whether
+  outside is safe). **Urine trace** seen behind the shelter (worth investigating).
 - **Data interpretation flags:** heavy fog + rain windows → CH05/06 view degradation; the quiescent
   "no motion" may be **fog-obscured rather than true stillness**. **IR glass physically lifted
   ~1 cm at 16:00** — a rig change mid-recording (view/geometry differs before vs after). The CH05 vs
   CH06 nesting asymmetry may be a per-shelter difference, not a rat-behavior difference.
 - **Scientific ideas / hypotheses:** the quiescent / consolidated-rest state is a target for LFP;
-  sleep-location differences between shelters may be meaningful.
+  sleep-location differences between shelters may be meaningful; the post-rain fast in-and-out looks
+  like **entrance-based safety sampling / risk assessment** (vigilance externalized to shelter
+  geometry — see Standing hypotheses).
 - **Analysis hooks:** segment CH05/06 before vs after the 16:00 glass lift; quantify quiescent bouts
-  only within clear-view windows; contrast CH05 vs CH06 nesting/occupancy per shelter.
+  only within clear-view windows; contrast CH05 vs CH06 nesting/occupancy per shelter; detect
+  post-rain in-and-out "checking" bouts at the entrance as a risk-assessment proxy.
 
 ### Day 5 — 2026-07-02 · obs HC · Equipment ⚠️ anti-fog film added + 07-01 glass lift removed (CH05/06)
 
@@ -162,7 +167,8 @@ Source of truth for identity + validity: `wiser_tracking_analysis/configs/rat_id
 ### Day 6 — 2026-07-03 · obs — · Equipment ⚠️ anti-fog film removed ~11:00 (CH05/06) · pre-dawn fog
 
 - **Observed field events:** _Behavior:_ 06:00 the sleeping group **split into a 3 + 2
-  configuration** (all five remaining rats accounted for). _Fog / rig:_ ~**04:00–06:00 EDT** heavy
+  configuration** (all five remaining rats accounted for). Apparent **circadian shift** — the group
+  now seems to **rest more around 11:00–12:00** (possibly temperature/humidity-driven). _Fog / rig:_ ~**04:00–06:00 EDT** heavy
   fog on the CH05/CH06 shelter IR glass, rats **hardly visible** — confirming the **07-02 ~13:00
   changes (anti-fog film on + ~1 cm lift off) did not work** — in fact the **anti-fog film made the field
   of view WORSE** that night (worse *with* the film on than with the bare glass, not merely ineffective).
@@ -182,18 +188,28 @@ Source of truth for identity + validity: `wiser_tracking_analysis/configs/rat_id
   floor** for CH05/CH06, not fixable by the surface treatments tried so far (condensation likely
   driven by the IR-light heat + overnight temp/humidity, forming on the inner glass). Separately,
   sleep-partner grouping (the 3 + 2 split) may predict nighttime co-movement — do rats that sleep
-  together also move together at night?
+  together also move together at night? The apparent midday (11:00–12:00) rest peak suggests the
+  **daytime rest rhythm may be shifting** (heat/humidity-driven), so the rest window is not fixed
+  across days.
 - **Analysis hooks:** restrict CH05/06 occupancy/rest on 2026-07-03 to clear-view windows and
   exclude the ~04:00–06:00 fogged window; treat **~11:00 07-03 (film off) as an optical-regime
   boundary** — don't pool shelter view-quality across it; once the fine-tuned detector is ready,
   check whether it recovers any rats in fogged frames or whether fog is a hard optical floor; test
-  whether sleep-cluster membership (the 3-vs-2 split) predicts nighttime proximity / co-movement.
+  whether sleep-cluster membership (the 3-vs-2 split) predicts nighttime proximity / co-movement;
+  check for a **midday (11:00–12:00) rest peak** and whether it tracks temperature/humidity across
+  days.
 
 ### Day 7 — 2026-07-04 · obs — · Equipment/optics ⚠️ post-film glass fogging (anti-fog coating likely damaged) · July 4th fireworks disturbance
 
-- **Observed field events:** during the July 4th fireworks, **increased group-level movement** —
-  more following behavior and some repeated route-like movement that *superficially* resembled
-  patrolling. Following behavior **increased after** the disturbance. _Fog \ rig:_ **evening rain**,
+- **Observed field events:** _Shelter / social:_ 10:00 most rats now prefer the **right house** — a
+  **shifted sleep preference** — and they **moved bedding material** from the previous main house to
+  the current one (possibly collaborative, or just convenient resting at the tunnel). 14:30 three
+  rats went to the **right-bottom-corner small shelter** (= "shelter 4" / a low-rank refuge; the
+  burrow under it is discovered ~07-06/07-07 — see Days 9–10). 22:16 rats increasingly stop by that
+  right-bottom-corner refuge, **especially Sen (306b)**; more **rearing** behavior. _Fireworks:_
+  during the July 4th fireworks (~21:00), **increased group-level movement** — more following
+  behavior and some repeated route-like movement that *superficially* resembled patrolling. Following
+  behavior **increased after** the disturbance. _Fog \ rig:_ **evening rain**,
   then fog on the CH05/CH06 shelter IR glass from ~**21:50 EDT (07-03)** through ~**09:30 EDT (07-04)** —
   a long (~11.5 h) overnight view-degradation window, much wider than the pre-dawn 04:00–06:00 ones. The
   observer's read: **removing the anti-fog film (07-03 ~11:00) appears to have DAMAGED the glass's original
@@ -211,8 +227,12 @@ Source of truth for identity + validity: `wiser_tracking_analysis/configs/rat_id
   do **not** use post-07-03 shelter view-quality as a clean "recovery" test of the `antifog_film` regime,
   and do not pool it with the pre-tape `bare` regime (tentative — observer's "looks like"; confirm by
   comparing post-film vs original-bare fog severity).
-- **Scientific ideas / hypotheses:** this did *not* look like a simple fear/escape response.
-  Fireworks may function less like a *localized predator threat* and more like a **diffuse,
+- **Scientific ideas / hypotheses:** _Sleep-site choice:_ what decides where they rest may be **not
+  only cool but also safe** — and it looks like **one rat finds a good spot first and the others
+  follow** (leader-then-follow shelter selection); the bedding relocation and right-house preference
+  shift reinforce that the two houses are **functionally asymmetric and used dynamically**
+  (fission–fusion), not fixed territories. _Fireworks:_ this did *not* look like a simple fear/escape
+  response. Fireworks may function less like a *localized predator threat* and more like a **diffuse,
   habitat-level disturbance** — logically similar to thunder, earthquake-like vibration, or shelter
   failure (e.g. leaking rain). For a threat with **no fixed source**, freezing or fleeing to a fixed
   location does not solve the problem, so the adaptive response shifts from *individual escape* to
@@ -221,10 +241,123 @@ Source of truth for identity + validity: `wiser_tracking_analysis/configs/rat_id
   coupling** (individuals using each other as information sources under uncertainty). Tentative
   label: **post-firework coordinated scanning / uncertainty-driven following — not confirmed
   territorial patrol, and not simple escape.**
-- **Analysis hooks:** align CH01/CH02 audio features over the fireworks window with WISER movement;
-  quantify following / leader-follower rate before vs during vs after the disturbance against a
-  shuffled null; test whether the apparent "routes" are genuinely repeated trajectories or just
-  arousal-driven perimeter movement.
+- **Analysis hooks:** track the **right-house preference shift** and **bedding relocation** across
+  days as evidence of shelter functional asymmetry; test the **leader-first-then-follow**
+  shelter-selection sequence (does one rat settling predict where the others settle?); align CH01/CH02
+  audio features over the fireworks window with WISER movement; quantify following / leader-follower
+  rate before vs during vs after the disturbance against a shuffled null; test whether the apparent
+  "routes" are genuinely repeated trajectories or just arousal-driven perimeter movement.
+
+### Day 8 — 2026-07-05 · obs — · Equipment ✅ OK · weather not logged
+
+- **Observed field events:** 00:41 the group appears to **shuffle houses every night**. 18:00 some
+  rats (e.g. **Hypnos**) stay more **isolated** from the others, and the identity of the isolate
+  sometimes switches. 22:00 **all five in the same corner hay house**. More **rearing**. Some rats
+  move in **parallel / side-by-side** (not direct following) and stand alongside each other in
+  contact — **especially Siesta (305a) + Nox (3062)**. Continued use of the **rock enrichment zones**.
+- **Data interpretation flags:** nightly house-shuffling → **shelter identity is not stable across
+  nights**; do not treat any one house as a fixed "home" (reinforces the fission–fusion framing).
+  **Parallel / side-by-side movement is distinct from following** — a leader-follower analysis must
+  not score parallel co-movement as following.
+- **Scientific ideas / hypotheses:** side-by-side parallel movement + contact standing may be an
+  **affiliative coordination** mode distinct from following; the recurrent **Siesta + Nox** pairing
+  may indicate a social bond; Hypnos being more peripheral is consistent with its Day-2
+  high-value-box isolation.
+- **Analysis hooks:** quantify **pairwise parallel movement vs following** (start with Siesta + Nox);
+  measure **nightly house-membership turnover** (shuffling rate); test whether **Hypnos is
+  consistently peripheral** in the sleeping group.
+
+### Day 9 — 2026-07-06 · obs — · Equipment ✅ OK · rain overnight
+
+- **Observed field events:** 13:00 a **hole / burrow is discovered under shelter 4** (the
+  right-bottom-corner refuge) — apparently a **collaborative dig** (one rat digs inside, another
+  removes/relocates soil), forming a **hidden spot with a concealed entrance**. 19:35 rats **woke
+  earlier than usual** (before the rain) and **did not go outside**. 20:00 rain — animals **cluster
+  in the four corners / under shade**; they appear **more co-active during rain**. ~21:30 brief
+  exploration in the rain (<1 h), then all **inside grooming together**; ~21:45 **group activity
+  restarts**. Rain expected to continue overnight. Recurring theme: **wherever they choose a new home
+  they modify / pave the entrance**.
+- **Data interpretation flags:** the **hole under shelter 4 explains the WISER UWB signal dropout at
+  that refuge — it is a burrow/hole (the tag drops below the anchor plane), NOT wet hay** — a
+  **weather-independent sensor artifact** (`refuge_4` occupancy under-counts, "time outside"
+  over-counts). **See Day 10 (07-07)** for the corrected full reinterpretation and the shelter-4
+  removal. _Timeline:_ the digging actually **started ~07-03 01:00 EDT** and continued nightly
+  (collaborative, >1 rat); the burrow was **discovered/logged this day (07-06 13:00)** and **only
+  shelter 4 (`refuge_4`) was removed ~07-07 13:00** — `refuge_1`/`refuge_2`/`refuge_3` are normal
+  refuges, **unaffected**. The burrow-dropout regime is **time-bounded ~07-03→07-07**, so the
+  06-28→06-30 analysis data predates it. **Entrance modification / paving changes shelter geometry
+  over time** → CV shelter-zone configs (`configs/CHxx_zones.json`) can drift and may need
+  re-checking. Rain co-activity is real behavior, but the same rain degrades CV view and can drop
+  WISER signal.
+- **Scientific ideas / hypotheses:**
+  - **Rain increases coordinated social activity** (not withdrawal): they were *more* co-active in
+    the rain, with synchronized in-shelter grooming and grouped activity bouts. This **echoes the
+    07-04 fireworks response** — diffuse environmental disturbances (rain, fireworks) may both push
+    the group toward **collective reassessment / social coupling** rather than individual escape (see
+    Day 7 and Standing hypotheses).
+  - **Weather anticipation:** waking **before** the rain and *not* going out may indicate the rats
+    **anticipate incoming rain** (barometric-pressure / humidity / distant-thunder cues) and
+    pre-emptively stay sheltered.
+  - **Niche construction with concealment:** the collaborative burrow (>1 rat, one digs / one clears
+    soil) plus the paved, "secret" entrance looks like **active habitat engineering with
+    anti-exposure concealment**, not just shelter selection.
+  - **Synchronized grooming** under rain confinement may be **social bonding / allogrooming**.
+- **Analysis hooks:** **flag `refuge_4` WISER occupancy as sensor-limited** (burrow dropout,
+  ~07-03→07-07) in any occupancy / time-outside metric; test **rain → group co-activity / grooming
+  synchrony**; **compare the rain vs fireworks (07-04) co-activity signatures** as a shared
+  diffuse-disturbance response; test **weather anticipation** — does wake time *lead* rain onset when
+  aligned to the AWN weather feed?; track **entrance-modification events** as shelter-geometry change
+  points for the CV zone maps.
+
+### Day 10 — 2026-07-07 · obs — · Equipment ⚠️ shelter 4 (refuge_4) REMOVED ~13:00 (anti-digging); +2 in-house cameras CH07/CH08 added ~14:38
+
+- **Observed field events:** the **hole / burrow under "shelter 4"** (the bottom-right refuge =
+  `refuge_4` in `wiser_rois.json`, x≈724 y≈636; discovered ~07-06 13:00, see Day 9) is a **burrow
+  ENTRANCE used for digging, NOT for sleep**. **Only shelter 4 has this property** — `refuge_1` /
+  `refuge_2` / `refuge_3` are **normal refuges (house area), unaffected**. Digging **started ~2026-07-03
+  01:00 EDT** and continued **nightly** until removal, with **more than one rat involved** (collaborative
+  burrowing). To stop further digging, **shelter 4 (`refuge_4`) was REMOVED ~13:00 EDT 2026-07-07**; the
+  other three refuges and the two **houses** (`house_1`/`house_2`, the actual sleep shelters) remain.
+- **Observed field events (equipment):** ~**14:38 EDT** **two extra cameras added — CH07 and CH08**
+  (EmpireTech 1/2.7″ CMOS 4MP fixed-focal pinhole PoE network cameras), mounted **inside the two big
+  houses to image the interior directly, with NO IR glass in the path**: **CH07 = inside CH05's
+  house, CH08 = inside CH06's house**. From now on tracking/QC can audit **CH07/CH08** (should already
+  be recording).
+- **Data interpretation flags:**
+  - **Reinterpret ONLY shelter 4 (`refuge_4`):** time at `refuge_4` from the dig start (~07-03) on is
+    **candidate burrow-entrance / underground use, NOT surface rest/sleep** — don't read it as a sleep
+    site/"home". `refuge_1`/`refuge_2`/`refuge_3` are **normal refuges**, no reinterpretation (the
+    "cool-morning rest at refuge_1" in Direction 3 stands).
+  - **WISER signal at shelter 4 is a STRUCTURAL, weather-INDEPENDENT below-plane dropout** (tag goes
+    underground in the burrow) — so `refuge_4` occupancy **under-counts** and "time outside"
+    **over-counts** on **dry days too**, not only when wet. This **supersedes the earlier "wet hay wall
+    attenuates UWB" hypothesis** for this refuge (wet hay may contribute marginally; the burrow is the
+    observed cause). A tag vanishing at `refuge_4` is **burrow / below-plane dropout, not the rat
+    leaving** — measurement-artifact / lower-bound; a gap ≠ "went outside".
+  - **Time-bounded:** the `refuge_4` burrow-dropout regime runs **~2026-07-03T01:00 → 2026-07-07T13:00
+    EDT** (dig start → removal); after removal `refuge_4` **does not exist** (`valid_until` set, so
+    post-removal fixes there → `open`). **All current WISER analysis data (06-28→06-30) PREDATES the
+    burrow**, so those results are unaffected (shelter-4 reads there are not burrow-contaminated).
+  - **CH07/CH08 are direct in-house views (NO glass), new since ~14:38 07-07:** unlike CH05/CH06,
+    which image the interior *through* the IR-transmitting window and suffer the whole glass-fog /
+    condensation / rain / glare / anti-fog-film regime (Days 3–7), **CH07/CH08 look at the house
+    interior directly**, so they should be **free of that glass-view regime**. They are a candidate
+    **fog-free interior ground truth / cross-check** for the through-glass shelter cameras — and a
+    **new channel pair** the CV pipeline must calibrate for (add to the `field_coords.py`
+    channel→model mapping and `configs/`; distinct optics from the RLC-520A nadir shelter cams). Data
+    begins **~14:38 EDT 2026-07-07**; nothing before that.
+- **Scientific ideas / hypotheses:** **shelter 4 (`refuge_4`) alone** functioned as a **burrow access
+  point** (collaborative, >1 rat, nightly from ~07-03), not a sleep shelter; the other refuges and the
+  two **houses** are the rest sites. Consistent with the Direction-3 finding that rest-site *sleep*
+  switching is a **house_1↔house_2** phenomenon (2 animals). Observer interpretation →
+  **hypothesis/covariate**, not a hard label (per the circularity warning above).
+- **Analysis hooks:** add `valid_until` to **`refuge_4` only** in `wiser_rois.json` **and** a
+  `time_varying_structures` entry in `data_manifests/2026-06-29-wiser-pilot.yaml`; for any `refuge_4`
+  occupancy / "time-outside" claim flag the **burrow-dropout regime** (lower bound, weather-independent,
+  ~07-03→07-07); test the mechanism by comparing `gap_flag`/dropout at `refuge_4` on **dry vs wet** days
+  (**burrow** ⇒ elevated on both; **hay** ⇒ wet-only); calibrate **CH07/CH08** into the CV field frame and use their
+  **glassless interior view as ground truth** to test whether CH05/CH06 fog is a hard optical floor
+  (compare what CH07/08 see vs CH05/06 in the same fogged windows).
 
 ## Standing hypotheses (cross-cutting)
 

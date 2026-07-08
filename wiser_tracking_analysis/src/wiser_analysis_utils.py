@@ -3269,6 +3269,300 @@ def rest_site_stability(sites_df: pd.DataFrame, *, occ_hists: dict | None = None
     return pd.DataFrame(out)
 
 
+# ---------------------------------------------------------------------------
+# Direction 3 — tiered relocation labels (avoid headlining a single 3x-jitter cut)
+# ---------------------------------------------------------------------------
+# Absolute-inch tiers, all well above the ~7 in jitter floor, plus a shelter-
+# IDENTITY switch (house_1 <-> house_2) that escalates to "major" regardless of the
+# raw distance. This keeps the biological headline cautious: a 22-28 in shift is
+# jitter-scale, not a relocation.
+DAYTIME_SHELTERS = ("house_1", "house_2")
+RELOCATION_TIERS = {"stable": 30.0, "marginal": 75.0, "borderline": 100.0, "major": 180.0}
+
+
+def nearest_shelter(sites_df: pd.DataFrame, roi_cfg: dict | None,
+                    shelters=DAYTIME_SHELTERS) -> pd.DataFrame:
+    """
+    Add ``nearest_shelter`` + ``dist_nearest_shelter_in`` (centre distance to the
+    named shelter ROIs, in the WISER inch frame) to a copy of ``sites_df``. Rows with
+    no defined site (NaN ``site_x``) or with no shelter ROIs get ``None`` / NaN.
+    Membership is frame-safe (inch offset frame); no physical/directional claim.
+    """
+    rois = {r["name"]: r for r in (roi_cfg.get("rois", []) if roi_cfg else [])}
+    cents = {s: (rois[s]["x"], rois[s]["y"]) for s in shelters if s in rois}
+    out = sites_df.copy()
+    names: list = []
+    dists: list = []
+    for _, r in out.iterrows():
+        if pd.isna(r.get("site_x")) or not cents:
+            names.append(None); dists.append(np.nan); continue
+        best_s, best_d = None, np.inf
+        for s, (cx, cy) in cents.items():
+            d = float(np.hypot(r["site_x"] - cx, r["site_y"] - cy))
+            if d < best_d:
+                best_d, best_s = d, s
+        names.append(best_s); dists.append(best_d)
+    out["nearest_shelter"] = names
+    out["dist_nearest_shelter_in"] = dists
+    return out
+
+
+def relocation_tier(shift_in: float, switched: bool, *,
+                    thresholds: dict = RELOCATION_TIERS) -> str:
+    """
+    Tiered across-day relocation label for one animal-day pair. ``switched`` is a
+    nearest-shelter identity change (house_1 <-> house_2). Bins (inches):
+    ``stable`` < 30 · ``marginal`` 30–75 · ``borderline`` 75–100 ·
+    ``robust_relocation`` 100–180 · ``major_shelter_switch`` ≥ 180 **or** an identity
+    switch with shift > 75 (escalates regardless of distance).
+    """
+    if shift_in is None or not np.isfinite(shift_in):
+        return "undefined"
+    t = thresholds
+    if (switched and shift_in > t["marginal"]) or shift_in >= t["major"]:
+        return "major_shelter_switch"
+    if shift_in >= t["borderline"]:
+        return "robust_relocation"
+    if shift_in >= t["marginal"]:
+        return "borderline"
+    if shift_in >= t["stable"]:
+        return "marginal"
+    return "stable"
+
+
+def classify_across_day(stab: pd.DataFrame, sites: pd.DataFrame,
+                        roi_cfg: dict | None, shelters=DAYTIME_SHELTERS
+                        ) -> pd.DataFrame:
+    """
+    Enrich the :func:`rest_site_stability` table with nearest-shelter identity per
+    night and a tiered :func:`relocation_tier` label. Adds ``nearest_shelter_prev``,
+    ``nearest_shelter``, ``shelter_switch`` (bool), ``relocation_tier``.
+    """
+    if stab.empty:
+        return stab.assign(nearest_shelter_prev=None, nearest_shelter=None,
+                           shelter_switch=False, relocation_tier="undefined")
+    s = nearest_shelter(sites, roi_cfg, shelters)
+    key = {(str(n), str(sid)): sh for n, sid, sh
+           in zip(s["night"], s["shortid"], s["nearest_shelter"])}
+    out = stab.copy()
+    prev = [key.get((str(r.night_prev), str(r.shortid))) for r in out.itertuples()]
+    now = [key.get((str(r.night), str(r.shortid))) for r in out.itertuples()]
+    out["nearest_shelter_prev"] = prev
+    out["nearest_shelter"] = now
+    out["shelter_switch"] = [(p is not None and q is not None and p != q)
+                             for p, q in zip(prev, now)]
+    out["relocation_tier"] = [relocation_tier(sh, sw) for sh, sw
+                              in zip(out["site_shift_in"], out["shelter_switch"])]
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Direction 3 (Stage B) — within-day rest bouts, day windows, relocation events
+# ---------------------------------------------------------------------------
+# Sustained low-speed REST bouts (a proxy for sleep/rest, NOT ephys-validated),
+# gap-aware (a WISER dropout is 'unknown', not 'awake'/'left'), tagged with the
+# nearest ROI/zone and the time-of-day window. Used to ask whether rest-site choice
+# follows a within-day (temperature-linked) pattern. Frame is the UNVERIFIED inch
+# offset, so claims are ROI-identity + outside-air-temperature/time proxies only.
+DAY_WINDOWS = (("early_morning", 5, 9), ("late_morning", 9, 12),
+               ("midday_heat", 12, 15), ("afternoon", 15, 18),
+               ("evening_transition", 18, 21))
+ZONE_CLASS = {"house_1": "shelter", "house_2": "shelter",
+              "refuge_1": "refuge", "refuge_2": "refuge", "refuge_3": "refuge",
+              "refuge_4": "refuge", "food_1": "resource", "food_2": "resource",
+              "water_1": "resource", "water_2": "resource", "tunnel_1": "tunnel",
+              "edge": "wall", "open": "open"}
+
+
+def day_window(hour) -> str:
+    """Time-of-day window label for a local clock hour (see :data:`DAY_WINDOWS`)."""
+    for name, a, b in DAY_WINDOWS:
+        if a <= hour < b:
+            return name
+    return "off_window"
+
+
+def zone_class(roi_label) -> str:
+    """Coarse zone class for an :func:`assign_roi` label (shelter/refuge/resource/
+    tunnel/wall/open)."""
+    return ZONE_CLASS.get(str(roi_label), "open")
+
+
+def rest_bouts(win: pd.DataFrame, *, roi_cfg: dict | None = None,
+               shelters=DAYTIME_SHELTERS, bin_s: int = 60, enter_s: float = 120,
+               exit_s: float = 180, min_bout_s: float = 300, rest_hi: float = 0.6,
+               rest_lo: float = 0.4, near_shelter_in: float = 48.0) -> pd.DataFrame:
+    """
+    Segment each **(night, shortid)** into sustained daytime REST bouts.
+
+    ``win`` must carry ``resting`` (:func:`rest_mask`), ``night``
+    (:func:`select_route_window`), ``datetime`` (naive UTC), ``x``, ``y``; ``roi`` is
+    assigned from ``roi_cfg`` if absent. Per ``bin_s`` bin: ``frac_rest`` =
+    mean(resting); reindex onto the contiguous within-night grid so **dropout bins
+    (no fix) are explicit NaN** — a gap holds state (dropout ≠ awake ≠ left).
+    Hysteresis (:func:`_hysteresis_state`, enter after ``enter_s`` rest, exit after
+    ``exit_s`` active, uncertain holds) yields bouts; bouts < ``min_bout_s`` dropped.
+
+    Per bout: ``start_utc``/``end_utc``/``duration_s``, ``n_fix``, centroid
+    (median), ``spread_in``, ``dominant_roi`` + ``zone_class``, ``dist_house_1_in`` /
+    ``dist_house_2_in``, ``nearest_shelter``, ``near_shelter`` (≤ ``near_shelter_in``),
+    ``dropout_frac`` (share of the bout's bin grid with no fix), and ``window`` (of
+    the bout midpoint). Returns a long bouts frame.
+    """
+    cols = ["night", "shortid", "start_utc", "end_utc", "duration_s", "n_bins",
+            "n_fix", "centroid_x", "centroid_y", "spread_in", "dominant_roi",
+            "zone_class", "dist_house_1_in", "dist_house_2_in", "nearest_shelter",
+            "near_shelter", "dropout_frac", "window"]
+    d = win.dropna(subset=["x", "y", "datetime"]).copy()
+    if "resting" not in d.columns:
+        raise KeyError("rest_bouts needs 'resting' (run rest_mask first).")
+    if "night" not in d.columns:
+        raise KeyError("rest_bouts needs 'night' (run select_route_window first).")
+    if "roi" not in d.columns and roi_cfg is not None:
+        d = assign_roi(d, roi_cfg)
+    rois = {r["name"]: r for r in (roi_cfg.get("rois", []) if roi_cfg else [])}
+    cents = {s: (rois[s]["x"], rois[s]["y"]) for s in shelters if s in rois}
+    binns = int(bin_s) * 1_000_000_000
+    d["bin_utc"] = _bin_utc_ns(d["datetime"], bin_s)
+    n_enter = max(1, int(np.ceil(enter_s / bin_s)))
+    n_exit = max(1, int(np.ceil(exit_s / bin_s)))
+    min_bins = max(1, int(np.ceil(min_bout_s / bin_s)))
+
+    rows: list[dict] = []
+    for (night, sid), g in d.groupby(["night", "shortid"]):
+        agg = g.groupby("bin_utc").agg(frac_rest=("resting", "mean")).sort_index()
+        full = np.arange(int(agg.index.min()), int(agg.index.max()) + binns, binns)
+        fr = agg["frac_rest"].reindex(full).to_numpy()
+        near = np.where(np.isnan(fr), np.nan,
+                        np.where(fr >= rest_hi, 1.0, np.where(fr <= rest_lo, 0.0, np.nan)))
+        state = _hysteresis_state(near, n_enter, n_exit)
+        edges = np.flatnonzero(np.diff(np.concatenate(([0], state.astype(np.int8), [0]))))
+        for a, b in zip(edges[0::2], edges[1::2]):
+            if (b - a) < min_bins:
+                continue
+            start, end = int(full[a]), int(full[b - 1])
+            fx = g[(g["bin_utc"] >= start) & (g["bin_utc"] <= end)]
+            if fx.empty:
+                continue
+            cx, cy = float(fx["x"].median()), float(fx["y"].median())
+            spread = float(np.median(np.hypot(fx["x"] - cx, fx["y"] - cy)))
+            dom_roi = str(fx["roi"].value_counts().idxmax()) if "roi" in fx.columns and len(fx) else "open"
+            if cents:
+                ds = {s: float(np.hypot(cx - c[0], cy - c[1])) for s, c in cents.items()}
+                nsh_name = min(ds, key=ds.get)
+                nsh = ds[nsh_name]
+                d_h1, d_h2 = ds.get("house_1", np.nan), ds.get("house_2", np.nan)
+            else:
+                nsh_name, nsh, d_h1, d_h2 = None, np.nan, np.nan, np.nan
+            span = b - a
+            present = int(np.count_nonzero(~np.isnan(fr[a:b])))
+            dropout = float(1.0 - present / span) if span else np.nan
+            mid_local = pd.Timestamp((start + end) // 2) + pd.Timedelta(hours=LOCAL_TZ_OFFSET_HOURS)
+            rows.append({
+                "night": night, "shortid": sid, "start_utc": start, "end_utc": end + binns,
+                "duration_s": int((b - a) * bin_s), "n_bins": int(b - a), "n_fix": int(len(fx)),
+                "centroid_x": cx, "centroid_y": cy, "spread_in": spread,
+                "dominant_roi": dom_roi, "zone_class": zone_class(dom_roi),
+                "dist_house_1_in": d_h1, "dist_house_2_in": d_h2, "nearest_shelter": nsh_name,
+                "near_shelter": bool(np.isfinite(nsh) and nsh <= near_shelter_in),
+                "dropout_frac": dropout, "window": day_window(mid_local.hour)})
+    return pd.DataFrame(rows, columns=cols)
+
+
+def within_day_sequence(win: pd.DataFrame, roi_cfg: dict | None = None, *,
+                        shelters=DAYTIME_SHELTERS, near_shelter_in: float = 48.0
+                        ) -> pd.DataFrame:
+    """
+    Per **(night, shortid, window)** daytime REST **site**: dominant zone/ROI by
+    resting-fix count **plus** the window's median centroid, nearest shelter, and a
+    representative time — so it is an ordered within-day *site sequence*, not just a
+    zone tally. (Rats rest ~90% of the day, so speed-bouts collapse to ~1/day;
+    within-day relocation is a LOCATION change inside one long rest state, captured
+    here at window granularity.) ``win`` needs ``resting`` + ``clock_hour`` +
+    ``datetime``; ``roi`` assigned from ``roi_cfg`` if absent.
+
+    Columns: ``night, shortid, window, window_order, start_utc, dominant_zone_class,
+    dominant_roi, centroid_x, centroid_y, nearest_shelter, dist_nearest_shelter_in,
+    near_shelter, n_rest_fix``. Windows ordered per :data:`DAY_WINDOWS`.
+    """
+    d = win[win["resting"]] if "resting" in win.columns else win
+    d = d.dropna(subset=["x", "y"]).copy()
+    if "roi" not in d.columns and roi_cfg is not None:
+        d = assign_roi(d, roi_cfg)
+    d["window"] = d["clock_hour"].map(day_window)
+    d["zc"] = d["roi"].map(zone_class) if "roi" in d.columns else "open"
+    rois = {r["name"]: r for r in (roi_cfg.get("rois", []) if roi_cfg else [])}
+    cents = {s: (rois[s]["x"], rois[s]["y"]) for s in shelters if s in rois}
+    order = {ww[0]: i for i, ww in enumerate(DAY_WINDOWS)}
+    rows = []
+    for (night, sid, wname), g in d.groupby(["night", "shortid", "window"]):
+        if wname == "off_window":
+            continue
+        zc = g["zc"].value_counts()
+        rc = g["roi"].value_counts() if "roi" in g.columns else pd.Series(dtype=int)
+        cx, cy = float(g["x"].median()), float(g["y"].median())
+        if cents:
+            ds = {s: float(np.hypot(cx - c[0], cy - c[1])) for s, c in cents.items()}
+            nsh_name = min(ds, key=ds.get); nsh = ds[nsh_name]
+        else:
+            nsh_name, nsh = None, np.nan
+        rows.append({"night": night, "shortid": sid, "window": wname,
+                     "window_order": order.get(wname, 99),
+                     "start_utc": int(g["datetime"].min().value),
+                     "dominant_zone_class": str(zc.idxmax()) if len(zc) else "open",
+                     "dominant_roi": str(rc.idxmax()) if len(rc) else "open",
+                     "centroid_x": cx, "centroid_y": cy, "nearest_shelter": nsh_name,
+                     "dist_nearest_shelter_in": nsh,
+                     "near_shelter": bool(np.isfinite(nsh) and nsh <= near_shelter_in),
+                     "n_rest_fix": int(len(g))})
+    seq = pd.DataFrame(rows)
+    if not seq.empty:
+        seq = seq.sort_values(["night", "shortid", "window_order"]).reset_index(drop=True)
+    return seq
+
+
+def relocation_events(seq: pd.DataFrame, *, order_col: str = "window_order",
+                      min_shift_in: float = 100.0, zone_floor_in: float = 30.0
+                      ) -> pd.DataFrame:
+    """
+    **Within-day** rest-site relocation events between consecutive rows of an ordered
+    per-(night, shortid) site sequence (from :func:`within_day_sequence`, or any frame
+    with ``centroid_x/centroid_y``, ``zone_class``, ``nearest_shelter``,
+    ``near_shelter`` and an ``order_col``). An event fires when the centroid shift ≥
+    ``min_shift_in``, OR the nearest-shelter identity changes (both rows near a
+    shelter — a house_1↔house_2 switch), OR the ``zone_class`` changes with a shift ≥
+    ``zone_floor_in``. Jitter-scale wiggles (< ``zone_floor_in``, no identity change)
+    are excluded. ``kind`` ∈ {shelter_switch, zone_change, displacement}.
+    """
+    if seq.empty:
+        return pd.DataFrame(columns=["night", "shortid", "shift_in", "kind"])
+    wlab = "window" if "window" in seq.columns else order_col
+    zcol = "zone_class" if "zone_class" in seq.columns else "dominant_zone_class"
+    out = []
+    for (night, sid), g in seq.sort_values(order_col).groupby(["night", "shortid"]):
+        g = g.reset_index(drop=True)
+        for i in range(1, len(g)):
+            p, q = g.iloc[i - 1], g.iloc[i]
+            shift = float(np.hypot(q["centroid_x"] - p["centroid_x"],
+                                   q["centroid_y"] - p["centroid_y"]))
+            sh_switch = bool(p["near_shelter"] and q["near_shelter"]
+                             and p["nearest_shelter"] != q["nearest_shelter"])
+            zone_change = bool(p[zcol] != q[zcol])
+            if shift >= min_shift_in or sh_switch or (zone_change and shift >= zone_floor_in):
+                kind = ("shelter_switch" if sh_switch
+                        else "zone_change" if zone_change else "displacement")
+                row = {"night": night, "shortid": sid,
+                       "from": p[wlab], "to": q[wlab],
+                       "from_zone": p[zcol], "to_zone": q[zcol],
+                       "from_roi": p.get("dominant_roi"), "to_roi": q.get("dominant_roi"),
+                       "from_shelter": p["nearest_shelter"], "to_shelter": q["nearest_shelter"],
+                       "shift_in": shift, "kind": kind}
+                if "start_utc" in seq.columns:
+                    row["start_utc"] = int(q["start_utc"])
+                out.append(row)
+    return pd.DataFrame(out)
+
+
 def intraday_site_drift(win: pd.DataFrame, *, extent,
                         blocks=((5, 11), (11, 15), (15, 21)),
                         bin_in: float = 4.0, min_fixes: int = 30,

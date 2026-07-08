@@ -24,14 +24,23 @@ CH05/CH06 image the shelter interior through **IR-filter glass**, so fog / conde
 **sensor path** (glass/view quality) or the **animal path** (real behavior); your audit keeps them
 separable. First follow the `regime-aware-cv-measurement` skill and read its reference doc
 `.claude/skills/regime-aware-cv-measurement/references/regime_artifacts.md` — it is the source of truth
-for the columns, schemas, view-quality tiers, safety rules, and the glass-treatment timeline.
+for the columns, schemas, view-quality tiers, safety rules, and the glass-treatment timeline. Then load
+`.claude/skills/regime-aware-cv-measurement/references/context_debug_map.yaml` — the canonical,
+machine-readable context→debugging map that turns each observation / regime change into the failure mode
+to test, its diagnostic, the allowed next action, and the forbidden interpretation. **It drives your
+audit** (see the workflow below).
 
 ## Scope (v1)
 
-Shelter-output focused: **CH05/CH06** shelter occupancy, view quality, glass regime, rest proxy. You
-may read camera provenance for **all** CH01–CH06 from `configs/field_layout.json`, but **CH01–CH04
-whole-field / cross-camera tracking is out of scope** unless a concrete output artifact for it is
-explicitly handed to you.
+Shelter-output focused: **CH05/CH06** shelter occupancy (through IR glass), view quality, glass regime,
+rest proxy. You may read camera provenance for **all CH01–CH08** from `configs/field_layout.json`.
+**CH01–CH04** whole-field / cross-camera tracking is out of scope unless a concrete output artifact is
+handed to you. **CH07/CH08** (added 2026-07-07) are **interior in-house cameras imaging directly inside
+`house_1`/`house_2` — GLASS-FREE / fog-immune**, so the through-glass fog / view-quality / glass-regime
+discipline does **not** apply to them (their failure modes are pinhole / close-range / IR-lighting, TBD).
+They are **not yet calibrated / zoned / validated** — audit a CH07/CH08 output only when one is handed to
+you, treat it as a distinct camera/regime, and note it is a candidate **glass-free interior reference**
+for cross-checking CH05/CH06 through-glass occupancy.
 
 ## When to invoke
 
@@ -64,6 +73,8 @@ explicitly handed to you.
 - `outputs/audit/*.annotated.csv` — back-filled covariates for pre-2026-07-02 vintages.
 - `data_manifests/field_conditions.yaml` (fog/rain windows) and `data_manifests/glass_treatments.yaml`
   (optical regimes). Times are local wall-clock; the Reolink OSD runs ~1 h behind filenames.
+- `.claude/skills/regime-aware-cv-measurement/references/context_debug_map.yaml` — the context→debugging
+  rule map (R1–R9 + `metadata_gaps`) you fire against this run's covariates; see the workflow below.
 
 Vintage matters: CSVs dated **before 2026-07-02** are un-annotated (or the older 6-column schema); say
 so and use the `outputs/audit/*.annotated.csv` back-fill if present. In the current schema the `t`
@@ -71,6 +82,17 @@ column is an absolute timestamp; older files use `t` as seconds-within-file — 
 `t` semantics.
 
 ## Required workflow
+
+**Drive steps 4–6 with the context→debugging map**
+(`.claude/skills/regime-aware-cv-measurement/references/context_debug_map.yaml`, canonical): for the run
+under audit, **fire every rule whose `trigger_signal` is true**, run its `diagnostic_query` as your
+stratification, classify the finding with the rule's `default_classification`, attach its
+`forbidden_interpretation` to the report, and recommend its `allowed_next_action` as the smallest next
+step. Honor the rule flags: R7 (`provenance_gap`/`comparability_gap`) blocks cross-run comparison until
+run identity matches; R9 (`interpretation_blocker`) halts **all** stratification until a catastrophic
+expected-vs-actual bin-count mismatch is patched + tested. Any rule that *should* apply but can't fire
+because its column is `missing`/`partial` (the map's `metadata_gaps`) becomes a named provenance gap in
+your report.
 
 1. **Locate** the output CSV and its **per-run** `<script>_<date>.measurement_context.json` sidecar.
 2. **Verify purity** — row count and existing metric columns are unchanged by annotation (the 9

@@ -30,6 +30,13 @@ analysis must carry regime context so these two paths stay separable. This matte
 **CH05/CH06**, which see the rats *through IR-filter glass* on a 24/7 recorder — the inside view is
 only as good as the glass at that moment.
 
+**New (2026-07-07): CH07/CH08 are interior in-house cameras** (EmpireTech 4MP pinhole) imaging *directly
+inside* `house_1`/`house_2` — so they are **glass-free / fog-immune**. The through-glass view-quality /
+`glass_regime` discipline in this skill applies to **CH05/CH06 only**, NOT to CH07/CH08 (whose failure
+modes are pinhole / close-range / IR-lighting, TBD). CH07/CH08 are a candidate **glass-free interior
+reference** for cross-checking CH05/CH06 through-glass occupancy, but are **not yet calibrated / zoned /
+validated** — see `configs/field_layout.json` (`view: interior_in_house`).
+
 The load-bearing safety invariant (already enforced in `shelter_sleep.py`, never weaken it):
 **degraded inside-glass never becomes `occupied_high_motion`; `unusable` view → `indeterminate`.**
 Weather/glass artifacts must never be counted as rat activity.
@@ -84,7 +91,9 @@ Do not merge categories to make a cleaner story. A number that is only trustwort
    bins (`shelter_sleep.py` output) using the existing `view_quality_*` / `weather_logged` columns.
 4. **Stratify errors by regime** — never report one pooled accuracy across mixed view quality.
 5. **Identify the current failure mode**: detector miss · undercount · false positive · huddle
-   compression · wall-edge blind zone · fog/view degradation · motion-threshold failure.
+   compression · wall-edge blind zone · fog/view degradation · motion-threshold failure — route via
+   [`references/context_debug_map.yaml`](references/context_debug_map.yaml) (observation/regime → failure
+   mode → diagnostic → allowed action → forbidden interpretation).
 6. **Recommend targeted labeling** only for the failure modes that remain (see below).
 7. **Do not claim weather causes behavior** unless clear-view data supports it (weather can be acting
    on the sensor, not the animal).
@@ -137,7 +146,11 @@ The CV pipeline already implements the *mechanics* of this discipline (3-tier `v
 weather cross-check). **Read [`references/regime_artifacts.md`](references/regime_artifacts.md)** for
 the exact files, columns, schemas, the CH05/CH06 glass-treatment (optical-regime) timeline, the known
 data gaps you must handle, and the fillable output-report template. Drive those real artifacts —
-don't reinvent them.
+don't reinvent them. To **route** an observation / configuration change to the specific failure mode to
+test, its diagnostic, the allowed next action, and the forbidden interpretation, use
+[`references/context_debug_map.yaml`](references/context_debug_map.yaml) (with its
+[`.md`](references/context_debug_map.md) design doc) — the canonical, machine-readable version the
+`cv-measurement-auditor` agent executes.
 
 For the current-state architecture + the catalogue of known failure modes (with evidence and the
 sensor-artifact / lower-bound / unresolved classification), see `docs/methods/shelter_cv_measurement.md`

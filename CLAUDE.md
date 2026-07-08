@@ -40,7 +40,7 @@ git-ignored `outputs/`.
 
 | Modality | Field PC (capture = source of truth) | Analysis PC (transferred, read-only) |
 |---|---|---|
-| **Video** — Reolink, 6 ch, hourly MP4 | `E:\Reolink_record\CHxx\` | `D:\Reolink_record\audio_in\Reolink_record\CHxx\` |
+| **Video** — Reolink, 6 ch, hourly MP4 (+ **CH07/CH08** EmpireTech in-house pinhole cams added 2026-07-07) | `E:\Reolink_record\CHxx\` | `D:\Reolink_record\audio_in\Reolink_record\CHxx\` |
 | **Audio** — embedded in those MP4s (mics on **CH01/CH02** only) | `E:\Reolink_record\CHxx\` (same files) | `D:\Reolink_record\audio_in\Reolink_record\CHxx\` |
 | **Thermal** — EmpireTech 108/109, thermal+visual | `E:\thermal_record\1xx_*` | `D:\Reolink_record\audio_in\thermal_record\{108,109}_{thermal,visual}\` |
 | **WISER** — UWB positions, timestamp **Unix ms UTC** | live DB `D:\Wiser\data\1stcohort_2026.sqlite` (+ `tag_reports.sqlite` fixed baseline); daily backup → `E:\Wiser_backup\` | `D:\Reolink_record\audio_in\Wiser_backup\` — `snapshots\1stcohort_2026_<date>.sqlite` (full DB copies; use the newest), `incremental\1stcohort_2026_<date>.csv.gz` (per-day), `tag_reports_<date>.sqlite` |
@@ -117,6 +117,17 @@ occupancy/ROI, nightly activity, weather merge, provenance.
   rest site as a low-speed occupancy proxy — daytime rest window 05:00–21:00 — and its within-/across-day
   drift; "sleep" is unvalidated vs ephys, CV shelter cams are the intended cross-check).
   `analyze_nightly_behavior.py` is the older combined driver.
+- **CV×WISER sleep-site reconciliation** (`scripts/analyze_sleep_site_cv_crossval.py`) bridges
+  Direction 3's WISER daytime rest site to CH05/CH06 shelter occupancy. Treat it as **asymmetric
+  measurement reconciliation, not symmetric cross-validation**: CV visible-inside-through-glass is a
+  **lower bound** on WISER near-shelter occupancy (huddle overlap + wall-edge blind zone), so the
+  headline is **per-shelter CV precision + CV recall-gap, never a pooled agreement number**. **κ is a
+  base-rate-warned diagnostic only, never the headline** — the low joint κ≈0.20 is the kappa paradox +
+  a measurement-definition mismatch, *not* clock misalignment (the ±1 h lag sweep is flat). The recall
+  gap is a coverage/definition limit (wall-edge blind zone), **not** an optical/fog failure: it does
+  not concentrate in degraded/foggy/low-validity strata. Diagnosis + strata land in `outputs/audit/`
+  (`ALIGNMENT_DIAGNOSIS_*`, `GEOMETRY_DIAGNOSIS_*`, `cv_wiser_reconciliation_strata.csv`). See
+  `change_log/2026-07-06-cv-wiser-reconciliation-reframe.md`.
 - `configs/`: `fixed_position_ground_truth.csv` (inches; precision floor only), `rat_identities.csv`
   (**`shortid` is a tag ID, not an animal — resolve here**), `wiser_rois.json` (`confirmed=false`
   → refuge/home claims fall back to inferred zones).
@@ -139,12 +150,13 @@ occupancy/ROI, nightly activity, weather merge, provenance.
 - **Before interpreting any WISER-derived behavior** (positions, speed/activity, proximity/social
   distance, occupancy/ROI, nightly movement, route structure, daytime sleep-site, or any spatial
   claim), follow the `.claude/skills/regime-aware-wiser-tracking/` skill — it separates the sensor
-  path (UWB jitter ~7 in, weather/wet-hay-wall signal dropout, unverified inch frame) from the animal
+  path (UWB jitter ~7 in, weather + shelter-4 burrow/hole signal dropout, unverified inch frame) from the animal
   path (real movement), and points at the QC helpers. It auto-fires; run it explicitly with
   `/regime-aware-wiser-tracking`. Its camera analog is `/regime-aware-cv-measurement`.
 - To **audit** a WISER analysis run's outputs (provenance completeness + error/QC stratification by
   regime, before promoting a finding or re-tuning), dispatch the **`wiser-measurement-auditor`**
-  subagent (`.claude/agents/`) — read-only; it stratifies, classifies, and persists an audit report.
+  subagent (`.claude/agents/`) — read-only; it stratifies, classifies, and persists an audit report
+  to `outputs/audit/`.
 
 ### `preprocessing/computer_vision/` — Field-PC CV pipeline "Stage 0" (Python, GPU)
 Turns Reolink footage into per-animal **(x, y) + ID in a shared field frame (cm)** plus
@@ -187,7 +199,9 @@ sleep/activity. No pose/keypoints. Tracking is per-camera, then transformed into
   (merge into common frame) → `sleep_activity.py` (rest/active bouts).
 - Canonical track CSV schema: `camera, frame, time_s, track_id, conf, x_img, y_img, x_field_cm, y_field_cm`.
 - Channel→model mapping drives the transform: CH01/02 Duo3 180° → poly; CH03/04 RLC-1212A wide
-  fisheye → undistort (`intrinsics.py`) + homography; CH05/06 RLC-520A shelter (~nadir) → homography.
+  fisheye → undistort (`intrinsics.py`) + homography; CH05/06 RLC-520A shelter (~nadir) → homography;
+  **CH07/CH08 EmpireTech 1/2.7″ 4MP fixed-focal pinhole (added 2026-07-07), mounted INSIDE the two
+  houses (CH07 = inside CH05's house, CH08 = inside CH06's house)** → still to be calibrated.
 - **CH05/CH06 view the rats THROUGH an IR-transmitting window**, so rain/fog/condensation/drips/glare
   land on the glass. `shelter_sleep.py` is zone-aware (`inside_shelter`/`doorway`/`outside_surrounding`,
   drawn via `place_zones.py` → `configs/CHxx_zones.json`) and tags each bin with a per-zone
@@ -198,6 +212,13 @@ sleep/activity. No pose/keypoints. Tracking is per-camera, then transformed into
   `validate_shelter.py` is the ground-truth check: it prompts you for the true inside count + still/
   moving on random closed-footage samples (detector answer hidden), then reports accuracy **stratified
   by `view_quality`** and asserts the safety check that degraded/unusable bins never score `occupied_high_motion`.
+- **CH07/CH08 image the house interior DIRECTLY — no glass in the path** (added ~2026-07-07 14:38;
+  CH07 inside CH05's house, CH08 inside CH06's house). Because they bypass the IR window, they should
+  **not** suffer the glass fog/condensation/rain/glare/anti-fog-film regime that confounds CH05/CH06,
+  and are the intended **fog-free interior ground truth / cross-check** for the through-glass shelter
+  cams. Data begins ~2026-07-07 14:38 (nothing before); they are not yet calibrated into the field
+  frame or wired into `shelter_sleep.py`. See `FIELD_OBSERVATIONS.md` Day 10 and
+  `docs/methods/shelter_cv_measurement.md`.
 - **Before interpreting any CV-derived behavior** (shelter occupancy, rest/sleep proxy, detector
   validation, counts, huddles, weather↔behavior, cross-day/camera comparison, or deciding what to
   label next), follow the `.claude/skills/regime-aware-cv-measurement/` skill — it separates the

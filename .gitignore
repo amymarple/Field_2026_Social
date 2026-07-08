@@ -244,3 +244,30 @@ preprocessing/computer_vision/dataset/
 # added before this rule bites, or force-added).
 wiser_tracking_analysis/outputs/*.png
 wiser_tracking_analysis/outputs/*_cleaned.csv
+
+# --- Recording / capture subsystem: the authoritative source is now the SEPARATE repo
+#     amymarple/Field_2026_Social_Recording (indexed in observation.md). Keep the capture
+#     tooling out of this ANALYSIS repo so no recording file is modified/committed here.
+#     NOTE: reolink_record/ + reolink_export/ are still TRACKED from earlier; this ignore
+#     only stops NEW recording files. To fully drop them here (files stay on disk), run once:
+#       git rm -r --cached reolink_record reolink_export
+reolink_record/
+reolink_export/
+
+# --- Large / derived analysis outputs: regenerated from raw data, never committed ---
+wiser_tracking_analysis/outputs/*
+!wiser_tracking_analysis/outputs/fixed_position_summary.csv
+preprocessing/computer_vision/outputs/
+
+# Large media / databases (raw + derived) — never belong in git
+*.mp4
+*.avi
+*.mkv
+*.mov
+*.sqlite
+*.sqlite3
+*.db
+*.csv.gz
+*.zip
+*.7z
+*.tar

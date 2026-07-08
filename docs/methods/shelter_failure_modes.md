@@ -6,6 +6,21 @@
 > skill. Evidence is cited to `change_log/` and `outputs/audit/` reports — those remain the provenance;
 > this is the summary.
 
+> **Turning these modes into actions.** The executable routing layer that maps an observation /
+> configuration change (fog risk, glass treatment, zone / detector / camera change, binning) to the
+> specific failure mode to test, its diagnostic, the allowed next action, and the forbidden
+> interpretation lives in the skill references —
+> [`context_debug_map.yaml`](../../.claude/skills/regime-aware-cv-measurement/references/context_debug_map.yaml)
+> (canonical, machine-readable) + its
+> [`.md`](../../.claude/skills/regime-aware-cv-measurement/references/context_debug_map.md) design doc.
+> This catalogue is the *what*; that map is the *what-to-do-next*. It is **not** duplicated here.
+
+> **New cross-check (since 2026-07-07).** The glass-path failure modes below apply to CH05/CH06,
+> which view the interior *through* the IR window. **CH07/CH08** (EmpireTech in-house pinhole cams,
+> added ~2026-07-07 14:38) image the same interiors **directly with no glass**, so they offer a
+> **fog-free cross-check** for the glass/fog/condensation modes going forward (data starts 07-07;
+> not yet calibrated). See [`shelter_cv_measurement.md` §7](shelter_cv_measurement.md).
+
 ## How to classify a result
 
 Every shelter-CV result must be placed in exactly one of four buckets (from the skill):

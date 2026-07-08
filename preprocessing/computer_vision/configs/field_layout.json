@@ -112,7 +112,7 @@
     }
   },
   "camera_mounts": {
-    "_comment": "Keys = RECORDING folders CH01..CH06 (= your CH1..CH6). pos_cm = ground position (the pole it sits on). height_cm ~ 8 ft. mapping: 'poly' (Duo3 panos) / 'pnp' (RLC-1212A side cams via wall) / 'homography' (RLC-520A shelter cams). Placeholders - set with place_cameras.py.",
+    "_comment": "Keys = RECORDING folders CH01..CH08. CH01..CH06 = original mounts (pos_cm = ground position/pole; height_cm ~ 8 ft; mapping 'poly' Duo3 panos / 'pnp' RLC-1212A side cams / 'homography' RLC-520A shelter cams). CH07/CH08 = interior in-house cameras added 2026-07-07 (EmpireTech 4MP pinhole) imaging DIRECTLY inside house_1/house_2 respectively -> glass-fog-immune, NOT through the CH05/CH06 IR glass; calibration/zones TBD (view='interior_in_house'). Placeholders - set with place_cameras.py.",
     "CH01": {
       "model": "Duo3",
       "pole": "B1",
@@ -180,6 +180,26 @@
         883.9,
         302.4
       ]
+    },
+    "CH07": {
+      "model": "EmpireTech 4MP pinhole (1/2.7\" CMOS, fixed-focal, PoE)",
+      "shelter": "left",
+      "view": "interior_in_house",
+      "images": "house_1 (the shelter CH05 views from nadir THROUGH the IR glass)",
+      "aim": "interior",
+      "mapping": "TBD",
+      "added": "2026-07-07T14:38-04:00",
+      "_note": "Direct in-house view; does NOT look through the CH05 IR glass -> glass-fog-immune. Calibration/zones/resolution/mount TBD; not yet processed. Failure modes are pinhole/close-range/IR-lighting, NOT the IR-glass fog regime."
+    },
+    "CH08": {
+      "model": "EmpireTech 4MP pinhole (1/2.7\" CMOS, fixed-focal, PoE)",
+      "shelter": "right",
+      "view": "interior_in_house",
+      "images": "house_2 (the shelter CH06 views from nadir THROUGH the IR glass)",
+      "aim": "interior",
+      "mapping": "TBD",
+      "added": "2026-07-07T14:38-04:00",
+      "_note": "Direct in-house view; does NOT look through the CH06 IR glass -> glass-fog-immune. Calibration/zones/resolution/mount TBD; not yet processed. Failure modes are pinhole/close-range/IR-lighting, NOT the IR-glass fog regime."
     }
   }
 }

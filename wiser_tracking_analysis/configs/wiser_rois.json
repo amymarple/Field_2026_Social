@@ -1,5 +1,5 @@
 {
-  "_README": "WISER ROIs in the WISER native inch frame (offset origin; UNVERIFIED vs physical paddock). Written by place_wiser_rois.py. Rect house size from field_layout.json shelters.",
+  "_README": "WISER ROIs in the WISER native inch frame (offset origin; UNVERIFIED vs physical paddock). Written by place_wiser_rois.py. Rect house size from field_layout.json shelters. NOTE (2026-07-07): ONLY refuge_4 ('shelter 4') was used as a BURROW ENTRANCE (>1 rat digging nightly from ~2026-07-03T01:00 EDT; hole found under it) and was REMOVED ~13:00 EDT 2026-07-07 (valid_until set; fixes there after that = 'open'). refuge_1/2/3 are NORMAL refuges (house area), unaffected and still present. Actual sleep shelters are house_1/house_2. WISER analysis data 06-28->06-30 predates the burrow. See FIELD_OBSERVATIONS.md Day 10 + change_log/2026-07-07-shelter4-burrow-removed.md.",
   "units": "inches",
   "frame": "WISER native (offset origin)",
   "boundary": {
@@ -68,7 +68,9 @@
       "x": 723.6740294688894,
       "y": 635.9336149314739,
       "confirmed": true,
-      "radius_in": 10.0
+      "radius_in": 10.0,
+      "valid_until": "2026-07-07T13:00:00-04:00",
+      "note": "'shelter 4' — the ONLY refuge used as a burrow entrance (>1 rat digging nightly from ~2026-07-03T01:00 EDT; hole found under it 2026-07-07 ~13:00); UWB below-plane dropout regime 2026-07-03->2026-07-07; refuge REMOVED 2026-07-07 13:00 EDT (anti-digging). refuge_1/2/3 are NORMAL refuges, unaffected. NOTE: WISER analysis data 06-28->06-30 PREDATES the burrow."
     },
     {
       "name": "water_1",

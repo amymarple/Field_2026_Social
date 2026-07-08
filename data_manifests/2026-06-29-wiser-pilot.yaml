@@ -59,6 +59,20 @@ time_varying_structures:
           07:00 local EDT on 2026-06-29 (= 11:00:00 UTC). Encoded as a time-bounded ROI
           (valid_until 2026-06-29T11:00:00 UTC); occupancy is attributed to the tunnel only
           before that instant — afterwards the same location is "open".
+  - name: refuge_4                       # "shelter 4", bottom-right small refuge
+    dig_started_local: 2026-07-03T01:00:00-04:00
+    removed_local: 2026-07-07T13:00:00-04:00
+    rats_involved: ">1 (collaborative, nightly)"
+    note: ONLY refuge_4 was used as a BURROW ENTRANCE (not sleep). >1 rat dug a hole under it
+          nightly from ~2026-07-03 01:00 EDT; hole discovered ~2026-07-06 13:00; the refuge was
+          physically REMOVED ~2026-07-07 13:00 EDT (anti-digging). Encoded as valid_until
+          2026-07-07T13:00:00-04:00 in wiser_rois.json (fixes there after that = "open"). During
+          the dig window (~07-03 -> 07-07) a tag in the burrow is BELOW the anchor plane, so WISER
+          UWB drops out -> refuge_4 occupancy under-counts / "time outside" over-counts,
+          WEATHER-INDEPENDENT (supersedes the earlier wet-hay-wall hypothesis). refuge_1/2/3 are
+          NORMAL refuges, unaffected. This WISER pilot dataset (2026-06-28 -> 06-30) PREDATES the
+          burrow, so its refuge_4 reads are not burrow-contaminated. See FIELD_OBSERVATIONS.md
+          Days 9-10.
 
 coordinate_frame:
   description: WISER native inch frame with an OFFSET origin (x does not start at 0).

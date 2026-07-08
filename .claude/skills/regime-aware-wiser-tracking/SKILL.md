@@ -6,8 +6,9 @@ description: >-
   movement, route/corridor structure, daytime sleep-site, or any cross-day/cross-tag or spatial
   claim. UWB positions are noisy (~4–7 in jitter) and the WISER inch frame is an UNVERIFIED offset
   origin; signal also drops out under weather (rain/wet ground) and near certain shelters (the
-  bottom-right low-rank ~1-inch hay-wall refuge loses UWB when the wall gets wet/white). Carry
-  noise, dropout, and frame context before any behavioral or spatial claim. Trigger phrases: "WISER",
+  bottom-right low-rank refuge / "shelter 4" loses UWB because of a HOLE/burrow under it — a tag below
+  the anchor plane — found 2026-07-07; weather-independent, supersedes the earlier wet-hay hypothesis).
+  Carry noise, dropout, and frame context before any behavioral or spatial claim. Trigger phrases: "WISER",
   "UWB", "tag position", "shortid", "proximity", "social distance", "occupancy", "ROI", "nightly
   movement", "route structure", "sleep site", "jitter floor", "georeference", "wall-running",
   "thigmotaxis", "does weather cause", "compare nights", "compare tags".
@@ -54,9 +55,11 @@ columns, and thresholds:
 - **fix-quality / validity flags** — `anchors_used` (< 4 = low-confidence), `calculation_error`,
   `battery_voltage`; `add_validity_flags` emits `low_anchor_flag` / `gap_flag` / jump flags.
 - **signal dropout / gaps** — quantify missing time. Expect dropout under **weather (rain / wet
-  ground)** and at the **bottom-right low-rank hay-wall shelter when the wall is wet/white** (UWB
-  attenuated by water in the ~1-inch hay wall). Dropout there biases occupancy *down* and "time
-  outside" *up* — a sensor artifact, not behavior.
+  ground)** and at the **bottom-right low-rank refuge ("shelter 4", ~`refuge_4`)** — caused by a
+  **HOLE / burrow under that shelter** (discovered 2026-07-07; tag goes below the anchor plane), **not**
+  the wet hay wall as earlier thought, so it is **weather-INDEPENDENT / persistent** (present on dry
+  days too). Dropout there biases occupancy *down* and "time outside" *up* — a sensor artifact, not
+  behavior. (See `FIELD_OBSERVATIONS.md` Day 10, 2026-07-07.)
 - **weather** — rain / wet / humidity degrade UWB (water attenuates the signal) *and* change behavior;
   it acts on **both** paths (`load_weather`, `merge_activity_weather`; alignment unverified ~5 min).
 - **coordinate frame (the #1 spatial blocker)** — positions are **inches in an UNVERIFIED offset
@@ -82,8 +85,8 @@ Classify **every** result into exactly one of:
    Never write to the live WAL DB.
 2. **Compute the jitter floor** from the stationary baseline; record the sampling rate.
 3. **Flag validity & gaps** (`add_validity_flags`); measure the dropout fraction for the window.
-4. **Identify the dropout/noise regime** — weather (rain/wet), the wet hay-wall shelter, low anchors,
-   battery decline, edge/multipath near walls.
+4. **Identify the dropout/noise regime** — weather (rain/wet), the shelter-4 burrow/hole (persistent),
+   low anchors, battery decline, edge/multipath near walls.
 5. **Stratify by validity/regime** — never pool a clean night with a heavy-dropout / rainy one.
 6. **Name the current failure mode**: jitter-floor violation · signal dropout / gap · multipath /
    wall artifact · unverified-frame (physical claim) · below-speed-noise-floor stillness ·
@@ -122,9 +125,13 @@ Do not:
 ## WISER-specific failure modes & field knowledge
 
 - **Jitter** ~7 in median (18 cm), p95 ~15 in — the fixed-position precision floor, not accuracy.
-- **Wet hay-wall dropout** — the bottom-right low-rank shelter is a ~1-inch hay-wall refuge; when the
-  wall gets wet/white the UWB signal there can stop. That rat's fixes vanish → occupancy under-counts
-  and "time outside" over-counts. This is a **sensor dropout regime**, not the rat leaving.
+- **Shelter-4 burrow dropout** — **ONLY** the bottom-right low-rank refuge ("shelter 4" = `refuge_4`;
+  `refuge_1/2/3` are normal) loses UWB because of a **HOLE / burrow** under it: **>1 rat dug it nightly
+  from ~2026-07-03 01:00 EDT**, hole found ~07-06, refuge **removed 07-07 13:00** (`valid_until` set). A
+  tag below the anchor plane / underground stops ranging → `refuge_4` occupancy under-counts and "time
+  outside" over-counts. This is a **structural, weather-INDEPENDENT** dropout regime (window ~07-03 →
+  07-07), not the rat leaving. **06-28→06-30 data predates it** (uncontaminated). (Supersedes the
+  "wet hay-wall" hypothesis. Test: hole ⇒ dropout dry *and* wet; hay ⇒ wet-only.)
 - **Weather** — rain / wet ground attenuates UWB and raises dropout/noise (WISER's analog of the CV
   glass problem).
 - **Unverified frame** — the #1 blocker for every spatial claim until a pole survey passes QC.

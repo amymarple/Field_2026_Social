@@ -1,0 +1,366 @@
+# Context → CV-debugging map — shelter measurement pipeline (CH05 / CH06)
+# =====================================================================================================
+# PURPOSE. Turn a field observation / configuration change / regime state into an EXPLICIT CV debugging
+# hypothesis: what measurement failure to TEST, the query that tests it, which frames/bins to pull, the
+# ONE next action allowed, and the interpretation that is FORBIDDEN. This makes CV debugging
+# context-driven — when a trigger fires ("glass changed", "fog risk high", "zone re-drawn"), the
+# pipeline already knows which failure mode to test BEFORE anyone retrains, relabels, or interprets.
+#
+# THIS IS A COVARIATE / DEBUGGING MAP, NOT AN EXCLUSION RULE ENGINE and NOT CODE. Nothing here changes
+# detector output, view-quality, motion, counts, safety, thresholds, or filtering. It is read by a human
+# or by the `cv-measurement-auditor` agent to decide what to test. Provenance for every failure mode is
+# docs/methods/shelter_failure_modes.md (FM #) and the change_log/ entries cited there.
+#
+# CLOCK CAVEAT (applies to every time-based trigger). Trigger times in field_conditions.yaml /
+# glass_treatments.yaml are LOCAL wall-clock (EDT). The Reolink OSD clock runs ~1 h BEHIND the recording
+# FILENAMES on this rig — reconcile a bin against filename timestamps before mapping it to a window (FM
+# via rule R9). Cross-device clocks are unverified.
+# =====================================================================================================
+
+schema_version: cv_context_debug_map/1.0
+channels: [CH05, CH06]
+
+# --- Field definitions (what each rule key means) ----------------------------------------------------
+schema:
+  id:                 "stable rule id (R1..R9)."
+  name:               "short human label."
+  trigger:            "the observation / configuration / regime state that fires the rule (prose)."
+  trigger_signal:     "machine-readable condition — column(s) + value(s) that make the trigger TRUE."
+  trigger_source:     "where the trigger comes from. columns/files + status: present | partial | missing."
+  failure_mode:       "expected measurement failure, GENERALIZED. ref = docs/methods/shelter_failure_modes.md"
+  #                     FM #; class = sensor_artifact | lower_bound | geometry_config | provenance |
+  #                     unresolved_candidate. Keep dataset-specific numbers OUT of the one_line so the rule
+  #                     generalizes beyond one audit.
+  evidence_example:   "(optional) a dataset-specific illustration of the mode — the numbers (e.g. a recall"
+  #                     figure) live HERE, not in the failure_mode one_line."
+  diagnostic_query:   "how to TEST it — the stratification / comparison to run (read-only)."
+  selection:          "which frames / bins to pull (for inspection or targeted labeling)."
+  allowed_next_action: "the smallest permitted next step(s). Never 'retrain' before stratifying."
+  forbidden_interpretation: "conclusions this trigger forbids — the wrong story to guard against."
+  default_classification: "one of: behavioral | measurement_artifact | mixed | lower_bound — the bucket a"
+  #                         result under this trigger defaults to until evidence moves it."
+  provenance_gap:     "(optional bool) the mismatch is a PROVENANCE problem — run identity is unrecorded/ambiguous."
+  comparability_gap:  "(optional bool) results are NOT comparable across the boundary (e.g. detector-version change)."
+  interpretation_blocker: "(optional bool) when TRUE, a catastrophic trigger BLOCKS all stratification /"
+  #                         interpretation until fixed — patch + test first (see R9)."
+
+# --- Rules -------------------------------------------------------------------------------------------
+rules:
+
+  - id: R1
+    name: high_fog_risk_or_logged_fog
+    trigger: >-
+      Weather risk high OR a logged fog/rain window overlaps the bin ("weather risk high", pre-dawn
+      condensation, "foggy", afternoon rain on the glass).
+    trigger_signal:
+      any_of:
+        - "fog_risk_level in {medium, high}"
+        - "weather_logged == true (bin intersects a field_conditions.yaml fog|rain window)"
+    trigger_source:
+      columns: [weather_logged, fog_risk_level, fog_risk_reason, dewpoint_gap, humidity_pct, rain_mm_hr]
+      files: [data_manifests/field_conditions.yaml, "AWN-*.csv via load_weather"]
+      status: partial
+      note: >-
+        weather_logged is in the shelter_sleep CSV. fog_risk_level (fog_risk.py FOG_COLS) is NOT yet a
+        shelter_sleep column — it is only computed in the reconciliation join today (see metadata_gaps.
+        fog_risk_in_sleep_csv). Until wired, join fog_risk by hand.
+    failure_mode: {ref: "FM1+FM2", class: sensor_artifact, one_line: "condensation/fog on glass → detector misses / count bias; a visible 'empty' or 'no motion' is fog-obscured, not true absence/stillness."}
+    evidence_example: "This dataset (2026-06-30 validation): presence-recall 86% (low fog-risk) → 77% (medium) → 17% (high); high-risk bins ~90% degraded view. Illustrative magnitude, not a threshold."
+    diagnostic_query: >-
+      Stratify presence-recall and count-MAE by fog_risk_level AND view_quality_inside (validation mode).
+      Ask whether misses CONCENTRATE in high-fog / degraded bins (if yes → sensor path; if flat across
+      fog-risk → not fog, hand to R3/R4).
+    selection: "high-fog-risk + degraded bins; contrast with rain+clear-view and clear+low-fog bins."
+    allowed_next_action:
+      - "caveat/exclude fogged bins from the headline budget (they are not headline-usable)."
+      - "targeted-label foggy/degraded frames and rain+clear-view frames."
+      - "add fog_risk covariate; stratify."
+    forbidden_interpretation:
+      - "'shelter was empty' or 'rats stopped moving' from a fogged/degraded bin (fog-obscured ≠ absence/stillness)."
+      - "'weather caused a behavior change' from fog bins — weather is acting on the SENSOR here."
+      - "scoring occupied_high_motion under degraded glass (already blocked by the safety rule; never weaken)."
+    default_classification: measurement_artifact
+
+  - id: R2
+    name: glass_treatment_change
+    trigger: >-
+      "Glass changed" — the IR glass was taped / lifted / anti-fog-film applied / reseated, OR the bin
+      falls inside the antifog_film optical regime.
+    trigger_signal:
+      any_of:
+        - "bin crosses a glass_treatments.yaml change_point (tape_applied | lift_on | film_on_and_lift_off | film_off)"
+        - "glass_regime == antifog_film"
+        - "glass_confounded.value == true"
+    trigger_source:
+      columns: [glass_regime, glass_layers, glass_uncertain_layers, glass_time_precision, glass_confounded, glass_regime_note]
+      files: [data_manifests/glass_treatments.yaml]
+      status: present
+      note: "glass_* covariates appended to the shelter_sleep CSV since 2026-07-02 by glass_regime.py; boundaries in glass_treatments.yaml. Nothing gates on it — join/stratify by hand."
+    failure_mode: {ref: "FM3", class: sensor_artifact, one_line: "the glass instrument (film/lift/tape/reseat) can degrade the view even at LOW fog-risk; coincident changes are confounded — not decomposable into one cause."}
+    evidence_example: "This dataset: CH05 antifog_film span (2026-07-02 13:00→) = 34 degraded bins in low-condensation afternoon hours vs 1 under the prior lift_1cm span; the 13:00 film-on + lift-off + reseat were confounded. Illustrative."
+    diagnostic_query: >-
+      Within fog_risk_level==low bins only, compare degraded-fraction across glass_regime spans. NEVER
+      pool view-quality/occupancy across a change_point. On a confounded boundary, report the regime, not
+      a single cause.
+    selection: "post-treatment frames (post anti-fog, post lift), esp. low-fog afternoon hours; matched clear-weather frames on both sides of a boundary."
+    allowed_next_action:
+      - "treat each glass_regime span as a DISTINCT camera; stratify/annotate by regime."
+      - "label post-glass-treatment frames."
+    forbidden_interpretation:
+      - "pooling view-quality or occupancy across a glass change_point (comparing two instruments)."
+      - "attributing antifog_film degradation to the film alone (confounded with lift-removal + reseating)."
+      - "'cross-day occupancy dropped' as behavior when a change_point sits between the days."
+    default_classification: measurement_artifact
+
+  - id: R3
+    name: wall_edge_blind_zone
+    trigger: >-
+      Any inside head-count is reported (near-nadir cams always have a wall-edge band), OR WISER shows
+      sustained near-shelter presence while CV recovers < half on CLEAR glass.
+    trigger_signal:
+      any_of:
+        - "a visible inside count is being used as a count"
+        - "cv_recall_gap_under_wiser_presence flag set (recall < 0.50 under WISER presence >= 0.50)"
+    trigger_source:
+      columns: [n_inside_estimated, n_inside_confidence]
+      files: ["outputs/audit/cv_recall_gap_flags.csv", "cv_wiser_reconciliation_strata.csv", "wiser reconciliation ALIGNMENT_DIAGNOSIS_*"]
+      status: partial
+      note: "No explicit per-bin wall-edge flag exists — only n_inside_confidence proxies it (see metadata_gaps.wall_edge_flag). The gap is measured via the WISER reconciliation, not a CV column."
+    failure_mode: {ref: "FM4", class: lower_bound, one_line: "band along interior walls is perspective-occluded; visible count <= true occupancy — a lower bound, never a headcount."}
+    evidence_example: "This dataset: CV recall ~0.50-0.60 FLAT across strata (clear≈degraded view, low≈high fog-risk) → the miss is a coverage/geometry limit, not fog. Illustrative."
+    diagnostic_query: >-
+      In the reconciliation strata, check whether CV-miss / WISER-present bins are FLAT across
+      view_quality_inside and fog_risk_level. Flat → coverage/geometry limit (this rule). Concentrated in
+      degraded/fog → hand back to R1.
+    selection: "WISER-present + CV-empty/low bins on CLEAR glass; wall-edge and doorway frames for labeling."
+    allowed_next_action:
+      - "report as visible_count / lower bound with n_inside_confidence."
+      - "dispatch wiser-measurement-auditor as the fog-immune cross-check."
+      - "label wall-edge / doorway frames (attack the coverage boundary, not general frames)."
+    forbidden_interpretation:
+      - "reporting the visible count as a TRUE headcount, or 'shelter empty'."
+      - "calling the recall gap an optical/fog failure — it persists on CLEAR glass (renamed away from cv_optical_failure_flags)."
+      - "retraining to 'fix' a perspective-geometry limit."
+    default_classification: lower_bound
+
+  - id: R4
+    name: heat_exterior_refuge_blind_zone_candidate
+    trigger: >-
+      Hot, high-solar daytime + clear/low-fog glass + WISER near-shelter present + CV visible-inside
+      empty. Candidate: target in an exterior wall-adjacent refuge outside the visible volume.
+    trigger_signal:
+      all_of:
+        - "hot high-solar daytime (ambient temp high proxy — NO house-temp sensor)"
+        - "view_quality_inside == clear AND fog_risk_level in {low}"
+        - "wiser_shelter_state present"
+        - "CV state in {empty}"
+    trigger_source:
+      columns: [state, view_quality_inside]
+      files: ["AWN temp_c/solar_wm2 via load_weather", "wiser reconciliation (presence)"]
+      status: missing
+      note: "COMPOSITE trigger is not computable from CV output today: ambient temp/solar is not joined into the CV CSV, no house-temperature sensor exists, and there is no code gate. FM5 is an UNRESOLVED candidate — report-semantics only."
+    failure_mode: {ref: "FM5", class: unresolved_candidate, one_line: "CANDIDATE measurement-gap: target may sit in an exterior wall-adjacent BLIND ZONE outside the visible volume. NOT a proven heat effect, NOT a detector FN, NOT true absence, NOT fog, NOT proof of inside."}
+    diagnostic_query: >-
+      Among clear-glass, low-fog, WISER-present, CV-empty bins, correlate with ambient temp / solar;
+      inspect CH01/CH02 opportunistic overview for exterior wall/doorway use. Manual only — no gate.
+    selection: "hot-afternoon clear-view WISER-present CV-empty bins; CH01/CH02 exterior-wall clips."
+    allowed_next_action:
+      - "mark the bin unknown / lower-bound; add an ambient-temp covariate."
+      - "propose (do NOT wire) a soft candidate flag; add a house-temp sensor to the wishlist."
+    forbidden_interpretation:
+      - "'CV missed a visible rat' (detector false-negative) — the region may be structurally unobservable."
+      - "'rat left the shelter' (true absence) or 'fog' — neither is established."
+      - "using this as an exclusion rule or a behavioral claim."
+    default_classification: mixed
+
+  - id: R5
+    name: huddle_undercount
+    trigger: >-
+      Rats pile/huddle (rest); overlapping bodies are counted as fewer boxes. Trigger on huddle-like
+      frames (many overlapping detections).
+    trigger_signal:
+      any_of:
+        - "n_detected_inside >= 4 (density proxy)"
+        - "frame flagged huddle-like on inspection"
+    trigger_source:
+      columns: [n_detected_inside]
+      files: []
+      status: missing
+      note: "No explicit huddle flag or huddle class exists (deferred until indivisible-pile frequency is known). Only n_detected_inside proxies density (see metadata_gaps.huddle_flag)."
+    failure_mode: {ref: "FM6", class: lower_bound, one_line: "piled/overlapping rats are counted as fewer separable boxes; true count >= detected box count."}
+    evidence_example: "This dataset: huddle-like frames ~16% of labeled / ~29% of positive; big piles still undercount after fine-tuning (gt=4 → detected 2-3). Illustrative."
+    diagnostic_query: "On labeled huddle frames, compare gt_count vs pred_count; compute undercount bias (validation mode only — needs ground truth)."
+    selection: "huddle-heavy frames (>= 4 overlapping boxes) for labeling."
+    allowed_next_action:
+      - "report the count as a lower bound; label huddle frames."
+      - "MEASURE the frequency of truly-indivisible piles BEFORE proposing a huddle class."
+    forbidden_interpretation:
+      - "reporting the detected box count as the exact number of rats."
+      - "treating undercount as a detector miss to regress away, or retraining a huddle class before measuring pile frequency."
+    default_classification: lower_bound
+
+  - id: R6
+    name: zone_polygon_misalignment
+    trigger: >-
+      "Calibration/zone changed" — CHxx_zones.json re-drawn, camera pose shifted, or CH06 (no zones
+      file) falling back to the calibration quad as its inside zone.
+    trigger_signal:
+      any_of:
+        - "zones fingerprint in measurement_context.json changed between runs"
+        - "channel == CH06 (no CH06_zones.json — calibration-quad fallback)"
+        - "camera pose/aim changed (FIELD_OBSERVATIONS.md)"
+    trigger_source:
+      columns: [mc_run_id]
+      files: ["outputs/shelter_sleep_<date>.measurement_context.json (zones + calibration fingerprints)", data_manifests/glass_treatments.yaml]
+      status: partial
+      note: "A zones-config CHANGE is detectable via the sidecar fingerprint + mc_run_id. A SILENT pose drift is not — there is no per-bin zone-integrity metric, and CH06_zones.json does not exist (see metadata_gaps.ch06_zones, zone_change_manifest)."
+    failure_mode: {ref: "n/a", class: geometry_config, one_line: "detections mis-assigned inside/doorway/outside → biased per-zone counts; a config artifact, not a detector error."}
+    diagnostic_query: >-
+      Compare zones/calibration fingerprints across runs; overlay the zone polygon on sample frames
+      (place_zones); check inside/doorway/outside detection ratios for a STEP CHANGE at the config-change
+      timestamp.
+    selection: "frames around the config-change timestamp; CH06 frames (calibration-quad fallback)."
+    allowed_next_action:
+      - "re-verify zones with a place_zones overlay; re-stamp mc_run_id."
+      - "flag CH06 inside-zone as uncalibrated in the reliability note."
+    forbidden_interpretation:
+      - "attributing a zone-count step change to behavior or to the detector."
+      - "pooling per-zone counts across a zone-config change; trusting CH06 inside-zone as calibrated."
+    default_classification: measurement_artifact
+
+  - id: R7
+    name: detector_model_version_change
+    trigger: >-
+      "Detector changed" — weights_version / fingerprint differs between runs (e.g. rat_feasibility-6 vs
+      an earlier detector), OR a run has no measurement_context sidecar at all.
+    trigger_signal:
+      any_of:
+        - "detector.weights_version or weights_fingerprint differs across the runs being compared"
+        - "no measurement_context.json sidecar present for the run"
+    trigger_source:
+      columns: [mc_run_id]
+      files: ["outputs/shelter_sleep_<date>.measurement_context.json (detector.weights_version + weights_fingerprint + conf/imgsz/batch/device)"]
+      status: partial
+      note: "Version lives only in the sidecar; the shelter_sleep CSV has NO model_version column (default rat_feasibility-6). If the run predates measurement_context.py, record the model by hand (see metadata_gaps.model_version_column)."
+    failure_mode: {ref: "n/a", class: provenance, one_line: "cross-run count/recall differences may be a detector-version effect, not behavior; mixing versions invalidates a trend."}
+    provenance_gap: true          # run identity (detector version) is the problem, not ambiguous interpretation
+    comparability_gap: true       # numbers are NOT comparable across a weights-version boundary
+    diagnostic_query: >-
+      Confirm both runs share the same weights_fingerprint / mc_run_id BEFORE comparing. To separate
+      detector effect from behavior, re-score ONE fixed validation clip set with each detector
+      (validation_<date>_rescored_<model>.csv).
+    selection: "a fixed held-out validation clip set, re-scored across detector versions."
+    allowed_next_action:
+      - "compare/stratify only WITHIN one weights_fingerprint."
+      - "re-run validation with the new detector to quantify the version delta."
+    forbidden_interpretation:
+      - "a cross-day behavior trend that spans a detector change."
+      - "reporting a number with no recorded model version; assuming covariate back-fill changed metrics (annotation is pure/append-only)."
+    default_classification: mixed
+
+  - id: R8
+    name: camera_or_channel_change
+    trigger: >-
+      "Camera changed" — camera model/role/pose changed in field_layout.json, a channel swap, or an
+      FOV / IR change (narrative in FIELD_OBSERVATIONS.md).
+    trigger_signal:
+      any_of:
+        - "camera block or field_layout.json fingerprint changed in the sidecar between runs"
+        - "camera_model / shelter_id ↔ channel mapping changed"
+        - "FOV / IR / pose change noted in FIELD_OBSERVATIONS.md"
+    trigger_source:
+      columns: [camera_model, shelter_id, mc_run_id]
+      files: ["measurement_context.json (per-camera block + field_layout.json fingerprint)", FIELD_OBSERVATIONS.md]
+      status: partial
+      note: "Per-row camera_model/shelter_id + the sidecar fingerprint capture a config change; a physical camera move is only in FIELD_OBSERVATIONS.md narrative — no structured camera-change manifest (see metadata_gaps.camera_change_manifest)."
+    failure_mode: {ref: "n/a", class: geometry_config, one_line: "a cross-camera / pre-post-move comparison compares two instruments; the homography/calibration is invalid after a pose change."}
+    diagnostic_query: "Compare the camera block + field_layout fingerprint across runs; verify shelter_id↔channel mapping is stable; re-check calibration frames after any pose change."
+    selection: "frames after the camera change; calibration-check frames."
+    allowed_next_action:
+      - "treat pre/post as DISTINCT cameras; stratify by camera_model / shelter_id."
+      - "re-calibrate (re-fit homography) after a pose change."
+    forbidden_interpretation:
+      - "pooling CH05 vs CH06, or pre/post-pose, as one series."
+      - "carrying an old homography/calibration past a pose change."
+    default_classification: measurement_artifact
+
+  - id: R9
+    name: timestamp_or_binning_issue
+    interpretation_blocker: true    # a catastrophic bin-count mismatch blocks ALL stratification until patched + tested
+    trigger: >-
+      "Timing/binning changed or is ambiguous" — a catastrophic expected-vs-actual bin-count mismatch,
+      schema vintage (legacy 6-col vs 15-col; t seconds-in-file vs absolute), the Reolink OSD ~1 h offset
+      vs filenames, a datetime-binning resolution hazard, or a weather join beyond tolerance.
+    trigger_signal:
+      any_of:
+        - "expected bin count vs actual bin count differ CATASTROPHICALLY (collapsed / duplicated / missing bins) — HARD BLOCKER"
+        - "CSV header is the legacy 6-column schema, or t is seconds-within-file"
+        - "a bin is being mapped to a fog/glass window without OSD-vs-filename reconciliation"
+        - "weather_lag_min > WX_TOL_MIN (30)"
+        - "timestamps loaded as datetime64[ms] then integer-divided (bin-collapse hazard)"
+    trigger_source:
+      columns: [t, file, weather_lag_min]
+      files: ["CSV header/vintage", "Reolink OSD ~1h offset caveat (field_conditions.yaml / glass_treatments.yaml headers)"]
+      status: partial
+      note: "Schema vintage is self-describing (key on the header, not t). The ~1 h OSD-vs-filename offset is NOT encoded machine-readably anywhere (see metadata_gaps.osd_clock_map). weather_lag_min exists only where fog_risk was joined."
+    failure_mode: {ref: "n/a", class: geometry_config, one_line: "mis-aligned bins → wrong regime attribution (fog/glass window off by ~1 h); collapsed bins from ms-datetime int-division; false weather association beyond tolerance."}
+    diagnostic_query: >-
+      Key stratification on the CSV header, not t semantics; verify bin timestamps against filename
+      timestamps before mapping to any window; check weather_lag_min <= 30; floor datetimes via .dt.floor
+      (never astype(int64)//ns on datetime64[ms]).
+    selection: "bins NEAR a regime boundary (fog-window edge, glass change_point) where a ~1 h offset flips attribution."
+    allowed_next_action:
+      - "HARD BLOCKER: if expected vs actual bin count diverge catastrophically, PATCH + add a regression test for timestamp/bin handling (floor via .dt.floor; cover datetime64[ms]/[us]/[ns]) BEFORE any stratification or interpretation."
+      - "reconcile OSD vs filename time; re-window before stratifying."
+      - "do not mix schema vintages in one series; re-floor bins with a resolution-safe method."
+    forbidden_interpretation:
+      - "running ANY stratification, comparison, or interpretation while expected and actual bin counts disagree catastrophically — fix + test the binning first."
+      - "mapping a bin to a fog/glass window without reconciling the ~1 h OSD offset."
+      - "mixing legacy and current schema in one series; trusting a weather join past WX_TOL_MIN."
+    default_classification: measurement_artifact
+
+# --- Triggers that CANNOT fire automatically yet (need new metadata) ---------------------------------
+# Each names the failure mode it would sharpen and what to add. Until then the rule fires by hand only.
+metadata_gaps:
+  - key: fog_risk_in_sleep_csv
+    blocks: [R1]
+    gap: "fog_risk_level (FOG_COLS) is NOT a shelter_sleep column — only computed in the reconciliation join."
+    add: "wire fog_risk.annotate into shelter_sleep.py output (deferred — adds a weather dep to CV capture)."
+  - key: wall_edge_flag
+    blocks: [R3]
+    gap: "no explicit per-bin wall-edge / occluded-band flag; only n_inside_confidence proxies it."
+    add: "a per-bin wall_edge_occluded / coverage-limited flag in the CV output."
+  - key: huddle_flag
+    blocks: [R5]
+    gap: "no huddle flag or huddle detector class; only n_detected_inside proxies density."
+    add: "a per-bin huddle-like flag (e.g. overlap density), then measure indivisible-pile frequency before a class."
+  - key: heat_refuge_composite
+    blocks: [R4]
+    gap: "ambient temp/solar not joined into CV output; no house-temperature sensor; no code gate. FM5 stays candidate."
+    add: "join AWN temp_c/solar_wm2 as covariates; add a house-temp sensor; a SOFT candidate flag (not an exclusion)."
+  - key: model_version_column
+    blocks: [R7]
+    gap: "detector version lives only in the measurement_context sidecar, not a CSV column."
+    add: "carry weights_version as a per-row column (or always confirm the sidecar emitted)."
+  - key: zone_change_manifest
+    blocks: [R6]
+    gap: "no structured zone-config / pose-drift record; CH06_zones.json does not exist (calibration-quad fallback)."
+    add: "draw CH06_zones.json; a structured zone/calibration change log beyond the sidecar fingerprint."
+  - key: camera_change_manifest
+    blocks: [R8]
+    gap: "physical camera moves are only in FIELD_OBSERVATIONS.md narrative — no structured manifest."
+    add: "a camera_changes.yaml (pose/FOV/IR/channel-swap change_points), mirroring glass_treatments.yaml."
+  - key: osd_clock_map
+    blocks: [R9]
+    gap: "the ~1 h Reolink OSD-vs-filename offset is documented in prose only, not machine-readable."
+    add: "a per-channel clock-offset table so window↔bin mapping can be reconciled programmatically."
+
+# --- Failure-mode class → default result bucket (docs/methods/shelter_failure_modes.md) --------------
+legend:
+  classes:
+    sensor_artifact:       "glass/view-quality/weather acting on the SENSOR path → default bucket: measurement_artifact."
+    lower_bound:           "structural/definition coverage limit (wall-edge, huddle) → default bucket: lower_bound (never a true headcount)."
+    geometry_config:       "zones/camera/timing config → measurement_artifact until re-verified."
+    provenance:            "run identity (detector/config) → mixed; comparability gate, not a behavior claim."
+    unresolved_candidate:  "hypothesis with no code gate (heat refuge) → mixed; report-semantics only."
+  result_buckets: [behavioral, measurement_artifact, mixed, lower_bound]

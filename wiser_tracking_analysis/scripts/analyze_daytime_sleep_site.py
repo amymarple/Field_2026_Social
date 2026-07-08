@@ -75,18 +75,32 @@ def _fig_sites(win, sites, tags, nights, jitter, fig_path):
     fig.tight_layout(); fig.savefig(fig_path, dpi=130); plt.close(fig)
 
 
+TIER_COLORS = {"stable": "0.7", "marginal": "tab:olive", "borderline": "goldenrod",
+               "robust_relocation": "tab:orange", "major_shelter_switch": "tab:red",
+               "undefined": "0.85"}
+
+
 def _fig_shift(stab, jitter, fig_path):
-    """Across-day site shift per tag, with a jitter-floor reference band."""
-    fig, ax = plt.subplots(figsize=(8, 4))
+    """Across-day site shift per tag, coloured by tiered relocation label with the
+    tier-threshold reference lines (30 / 100 / 180 in). Jitter-scale shifts (<30 in)
+    are greyed so they don't read as relocations."""
+    fig, ax = plt.subplots(figsize=(8.5, 4.2))
     if not stab.empty:
+        tiers = stab["relocation_tier"] if "relocation_tier" in stab else ["undefined"] * len(stab)
+        colors = [TIER_COLORS.get(t, "0.7") for t in tiers]
         labels = [f"{r.shortid}\n{r.night_prev[5:]}→{r.night[5:]}" for r in stab.itertuples()]
-        ax.bar(range(len(stab)), stab["site_shift_in"], color="tab:purple")
+        ax.bar(range(len(stab)), stab["site_shift_in"], color=colors)
         ax.set_xticks(range(len(stab)))
         ax.set_xticklabels(labels, fontsize=7, rotation=45, ha="right")
     ax.axhline(jitter, color="0.5", ls="--", lw=1, label=f"jitter floor ~{jitter:.0f} in")
-    ax.axhline(3 * jitter, color="tab:red", ls=":", lw=1, label=f"3x floor ~{3*jitter:.0f} in")
-    ax.set_ylabel("across-day site shift (in)"); ax.legend(fontsize=8)
-    ax.set_title("Day-to-day sleep-site change (shift >> floor = real relocation)")
+    for thr, lab in [(30, "stable/marginal 30"), (100, "robust 100"), (180, "major switch 180")]:
+        ax.axhline(thr, color="k", ls=":", lw=0.8, alpha=0.5)
+        ax.text(len(stab) - 0.4 if not stab.empty else 0, thr, f" {lab} in", fontsize=6.5, va="bottom")
+    handles = [plt.Rectangle((0, 0), 1, 1, color=c) for t, c in TIER_COLORS.items()
+               if t not in ("undefined",)]
+    ax.legend(handles, [t for t in TIER_COLORS if t != "undefined"], fontsize=7, loc="upper left")
+    ax.set_ylabel("across-day primary-site shift (in)")
+    ax.set_title("Day-to-day rest-site change by tier (only ≥100 in = robust; identity switch = major)")
     fig.tight_layout(); fig.savefig(fig_path, dpi=130); plt.close(fig)
 
 
@@ -161,6 +175,7 @@ def main() -> None:
     sites, hists = w.daytime_primary_site(
         win, extent=extent, roi_cfg=roi_cfg, min_fixes=args.min_fixes, transform=transform)
     stab = w.rest_site_stability(sites, occ_hists=hists)
+    stab = w.classify_across_day(stab, sites, roi_cfg)   # tiered relocation labels
     drift = w.intraday_site_drift(win, extent=extent, transform=transform)
     sites.to_csv(out / "daytime_primary_site.csv", index=False)
     stab.to_csv(out / "rest_site_stability.csv", index=False)
@@ -183,19 +198,30 @@ def main() -> None:
     _fig_shift(stab, jitter, fig / "S2_across_day_shift.png")
     _fig_intraday(drift, jitter, fig / "S3_intraday_drift.png")
 
-    # --- verdict ---
-    real_move = 3 * jitter
-    n_reloc = int((stab["site_shift_in"] > real_move).sum()) if not stab.empty else 0
+    # --- verdict: tiered relocation, cautious biological claim ---
     med_conc = float(sites["site_concentration"].dropna().median()) if not sites.empty else float("nan")
+    tier_counts = (stab["relocation_tier"].value_counts().to_dict()
+                   if not stab.empty and "relocation_tier" in stab else {})
+    robust_tiers = {"robust_relocation", "major_shelter_switch"}
+    reloc_animals = sorted({str(r.shortid) for r in stab.itertuples()
+                            if getattr(r, "relocation_tier", "") in robust_tiers}) if not stab.empty else []
+    switch_animals = sorted({str(r.shortid) for r in stab.itertuples()
+                             if getattr(r, "shelter_switch", False)}) if not stab.empty else []
+    reloc_str = ", ".join(reloc_animals) if reloc_animals else "none"
     verdict = (
-        f"CANDIDATE daytime sleep-site analysis (05:00-21:00, exploratory). "
-        f"{len(tags)} tags x {len(nights)} rest days; median site concentration "
-        f"{med_conc:.2f} (frac of rest fixes within 24 in of the primary site). "
-        f"Across-day relocations (> 3x jitter ~{real_move:.0f} in): {n_reloc}/"
-        f"{len(stab)} animal-day pairs. Sleep = low-speed proxy (< {moving_thr:.1f} in/s), "
-        f"NOT ephys-validated; WISER frame {'georeferenced' if transform else 'UNVERIFIED'}; "
-        f"ROI names {'from confirmed ROIs' if roi_cfg else 'unavailable'} (provisional). "
-        f"Only site differences >> the ~{jitter:.0f} in jitter floor are trustworthy.")
+        f"CANDIDATE daytime rest-site analysis (05:00-21:00, exploratory). {len(tags)} tags x "
+        f"{len(nights)} rest days; median site concentration {med_conc:.2f} (frac of rest fixes "
+        f"within 24 in of the primary site). Across-day relocation tiers "
+        f"(jitter floor ~{jitter:.0f} in): {tier_counts}. Daytime rest-site fidelity is "
+        f"HETEROGENEOUS: {reloc_str} show robust cross-shelter relocation"
+        + (f" (house_1<->house_2 identity switch: {', '.join(switch_animals)})" if switch_animals else "")
+        + f", while the other animals are mostly stable or marginal near the jitter scale "
+        f"(22-28 in shifts are NOT relocations). Sleep = low-speed proxy (< {moving_thr:.1f} in/s), "
+        f"NOT ephys-validated; WISER frame {'georeferenced' if transform else 'UNVERIFIED'} "
+        f"(inch offset); ROI names {'from confirmed ROIs' if roi_cfg else 'unavailable'} "
+        f"(provisional). CV shelter cams corroborate visible shelter-resident periods only "
+        f"(CV = lower bound; 2026-07-06 reconciliation). Only site differences >> the "
+        f"~{jitter:.0f} in jitter floor are trustworthy.")
     (out / "sleep_site_conclusion.txt").write_text(verdict, encoding="utf-8")
     w.write_run_manifest(out, {
         "analysis": "Direction 3 — daytime sleep/rest-site",
@@ -204,6 +230,10 @@ def main() -> None:
         "paired_note": "Sova/12409 removed",
         "rest_cutoff_inps_p99_stationary": moving_thr, "jitter_floor_in": jitter,
         "site_bin_in": 4.0, "site_radius_in": 24.0, "min_fixes": args.min_fixes,
+        "relocation_tiers_in": w.RELOCATION_TIERS,
+        "relocation_tier_counts": tier_counts,
+        "robust_relocation_animals": reloc_animals,
+        "shelter_switch_animals": switch_animals,
         "intraday_blocks": [list(b) for b in BLOCKS],
         "georeferenced": bool(transform),
         "roi_naming": "provisional (wiser_rois.json placeholder until confirmed)" if roi_cfg else "none",
