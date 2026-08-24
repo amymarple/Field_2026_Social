@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# CV training data / weights - big binaries, keep them out of git (2026-08-24)
+preprocessing/computer_vision/dataset/
+preprocessing/computer_vision/runs/
+*.pt
