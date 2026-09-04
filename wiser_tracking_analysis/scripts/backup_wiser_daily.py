@@ -48,6 +48,25 @@ from pathlib import Path
 DEFAULT_DB = Path(r"D:\Wiser\data\1stcohort_mice_2026.sqlite")
 DEFAULT_BASELINE = Path(r"D:\Wiser\data\tag_reports.sqlite")
 DEFAULT_DEST = Path(r"E:\Wiser_backup")
+
+
+def resolve_newest_sibling(db: Path) -> Path:
+    """wiserex opens a NEW '<stem>_<N>.sqlite' every time it restarts (crash, reboot,
+    manual restart), so a task pinned to '<stem>_3.sqlite' silently backs up a dead
+    file after the next restart (bit us 2026-09-03/04: 18 h of the live _4 file with
+    no backup). If the given path ends in _<N>, follow the highest-N sibling with the
+    same prefix. Directory listing only - never opens any file."""
+    prefix, sep, n = db.stem.rpartition("_")
+    if not sep or not n.isdigit():
+        return db
+    best, best_n = db, int(n)
+    for cand in db.parent.glob(f"{prefix}_*{db.suffix}"):
+        p2, s2, n2 = cand.stem.rpartition("_")
+        if s2 and p2 == prefix and n2.isdigit() and int(n2) > best_n:
+            best, best_n = cand, int(n2)
+    if best != db:
+        print(f"[follow-newest] {db.name} -> {best.name} (newest _N sibling; --no-follow-newest to pin)")
+    return best
 SOURCE_TREE = Path(r"D:\Wiser")          # never write under here
 
 
@@ -364,6 +383,9 @@ def main() -> None:
                     help="re-run even if today's snapshot exists (or overwrite a "
                          "--backfill-day file).")
     ap.add_argument("--dry-run", action="store_true", help="plan only; no writes.")
+    ap.add_argument("--no-follow-newest", action="store_true",
+                    help="Use --db exactly as given. Default: if it ends in _<N>, follow the "
+                         "highest-N sibling (wiserex rolls a new _N file on every restart).")
     ap.add_argument("--backfill-day",
                     help="Backfill ONE past local-day (yyyy-mm-dd): extract its rows "
                          "from the newest snapshot into incremental/<stem>_<day>.csv.gz "
@@ -371,6 +393,8 @@ def main() -> None:
     ap.add_argument("--tz-offset-hours", type=int, default=-4,
                     help="Local UTC offset for --backfill-day day boundaries (EDT = -4).")
     args = ap.parse_args()
+    if not args.no_follow_newest:
+        args.db = resolve_newest_sibling(args.db)
 
     if not args.db.exists():
         raise SystemExit(f"[backup] Database not found: {args.db}")

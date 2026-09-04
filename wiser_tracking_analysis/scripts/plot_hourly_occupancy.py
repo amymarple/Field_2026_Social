@@ -170,6 +170,26 @@ def _assert_safe_output(out_dir: Path, db_path: Path) -> None:
 # Snapshot-first: the ONLY touch of the live DB per run
 # ---------------------------------------------------------------------------
 
+def resolve_newest_sibling(db: Path) -> Path:
+    """wiserex opens a NEW '<stem>_<N>.sqlite' every time it restarts (crash, reboot,
+    manual restart), so a task pinned to '<stem>_3.sqlite' silently plots a dead file
+    after the next restart (bit us 2026-09-03/04). If the given path ends in _<N>,
+    follow the highest-N sibling with the same prefix. Directory listing only - never
+    opens any file. Resolved once per process (the hourly task is a fresh process;
+    --watch keeps the file it started with)."""
+    prefix, sep, n = db.stem.rpartition("_")
+    if not sep or not n.isdigit():
+        return db
+    best, best_n = db, int(n)
+    for cand in db.parent.glob(f"{prefix}_*{db.suffix}"):
+        p2, s2, n2 = cand.stem.rpartition("_")
+        if s2 and p2 == prefix and n2.isdigit() and int(n2) > best_n:
+            best, best_n = cand, int(n2)
+    if best != db:
+        print(f"[follow-newest] {db.name} -> {best.name} (newest _N sibling; --no-follow-newest to pin)")
+    return best
+
+
 def _snapshot_live_db(live_db: Path, out_dir: Path) -> Path:
     """Copy *live_db* into *out_dir* with SQLite's online-backup API and return
     the copy's path. Single-shot backup = one bounded SHARED-lock hold roughly
@@ -829,7 +849,12 @@ def main() -> None:
                     help="Disable the battery watch.")
     ap.add_argument("--battery-now", action="store_true",
                     help="Run the battery check immediately (ignore the scan interval) and exit.")
+    ap.add_argument("--no-follow-newest", action="store_true",
+                    help="Use --db exactly as given. Default: if it ends in _<N>, follow the "
+                         "highest-N sibling (wiserex rolls a new _N file on every restart).")
     args = ap.parse_args()
+    if not args.no_follow_newest:
+        args.db = resolve_newest_sibling(args.db)
 
     if args.identities:
         if not args.identities.exists():
