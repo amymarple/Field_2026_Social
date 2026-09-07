@@ -184,3 +184,20 @@ known **WISER blind zone** and infer "in burrow" from the disappearance-at-refug
 rather than from fixes; (b) map which refuges have burrows (periodic check — they may dig more);
 (c) cross-check occupancy with the shelter cameras / thermal where possible, though a burrow
 under the shelter may be blind to those too.
+
+## 2026-09-07 - Cohort 3 identity table; SF11 retired for WISER at 08:20 ET
+
+`configs/rat_identities_cohort3.csv` added (tag ids are reused across cohorts, so the default
+`rat_identities.csv` - cohort 2, all `valid_until` in July - must NOT be used for cohort 3):
+3079=SF07, 3062=SF08, 3077=SF09, 306b=SF10, 305a=SF11 (battery died, valid_until 2026-09-02 00:03),
+3058=SF11 (valid_until 2026-09-07 08:20 - implant lost ~07:40, animal removed at the morning round;
+last regular fix 08:20, 3 stray fixes at 09:40:11 to drop), 3059=SF12. Caveat: 3058 was on SF12 until
+its 8/31 19:24 drop and on SF11 from 9/2 ~08:00 (the CSV has no valid_from; use the cohort timeline
+for the 8/30-9/2 assignment).
+
+**Impact.** The hourly occupancy task has been running with the default table, so the cohort-3
+panels carry cohort-2 names (Nox/Sen/Dormi/Sova for 3062/306b/3077/3079) and the coverage QC
+expected no tags at all. Re-register with
+`.\install_wiser_occupancy_task.ps1 -Identities <repo>\wiser_tracking_analysis\configs\rat_identities_cohort3.csv`
+(admin shell; keep the current -DbPath / -OutputDir) to get correct labels and missing-rat alerts
+for the five remaining animals.
